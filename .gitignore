@@ -1,0 +1,34 @@
+# Secrets and local env
+.env
+.env.local
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local Android SDK checkout (large; not part of source)
+android-sdk/
+
+# Temporary Box64 rootfs used during builds
+.tmp_box64/
+
+# OS / filesystem junk
+.DS_Store
+Thumbs.db
+*Zone.Identifier
+
+# Editor backups
+*~
+*.swp
+*.swo
