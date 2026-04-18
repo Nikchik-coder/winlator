@@ -13,9 +13,11 @@
         android:orientation="vertical">
 
         <androidx.appcompat.widget.Toolbar
+            android:id="@+id/Toolbar"
+            style="?attr/toolbarStyle"
             android:layout_width="match_parent"
             android:layout_height="?actionBarSize"
-            android:id="@+id/Toolbar"
+            android:elevation="6dp"
             app:layout_scrollFlags="enterAlways|scroll"
             app:title="@string/app_name" />
 
@@ -27,14 +29,15 @@
     </LinearLayout>
 
     <com.google.android.material.navigation.NavigationView
+        android:id="@+id/NavigationView"
         android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        android:id="@+id/NavigationView"
+        android:background="@drawable/drawer_retronexus_bg"
         android:fitsSystemWindows="true"
+        app:elevation="8dp"
         app:headerLayout="@layout/main_menu_header"
-        app:itemIconTint="?attr/colorAccent"
-        app:itemTextColor="?attr/colorPrimaryText"
-        android:background="?attr/colorSecondarySurface"
-        app:menu="@menu/main_menu"/>
+        app:itemIconTint="@color/nav_item_icon_tint"
+        app:itemTextColor="@color/nav_item_text_tint"
+        app:menu="@menu/main_menu" />
 </androidx.drawerlayout.widget.DrawerLayout>

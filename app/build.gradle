@@ -1,14 +1,32 @@
 apply plugin: 'com.android.application'
 
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localPropsFile.withInputStream { stream ->
+        localProps.load(stream)
+    }
+}
+
+def escForBuildConfig = { String s ->
+    if (s == null) return ""
+    return s.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
 android {
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.winlator'
+        applicationId 'com.retronexus'
         minSdkVersion 26
         targetSdkVersion 28
         versionCode 27
-        versionName "11.0"
+        versionName "11.0.2"
+
+        def supabaseUrl = localProps.getProperty('SUPABASE_URL', '')
+        def supabaseAnonKey = localProps.getProperty('SUPABASE_ANON_KEY', '')
+        buildConfigField 'String', 'SUPABASE_URL', "\"${escForBuildConfig(supabaseUrl)}\""
+        buildConfigField 'String', 'SUPABASE_ANON_KEY', "\"${escForBuildConfig(supabaseAnonKey)}\""
     }
 
     buildTypes {
@@ -30,8 +48,16 @@ android {
 
     externalNativeBuild {
         cmake {
-            version '3.22.1'
+            version '3.28.3'
             path 'src/main/cpp/CMakeLists.txt'
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            // This project currently produces many duplicate native .so's (from CMake + merged JNI inputs).
+            // Wildcard pickFirst keeps the build unblocked so we can iterate on RetroNexus UX.
+            pickFirsts += ['**/*.so']
         }
     }
 }
@@ -43,4 +69,6 @@ dependencies {
     implementation 'com.github.luben:zstd-jni:1.5.2-3@aar'
     implementation 'org.tukaani:xz:1.7'
     implementation 'org.apache.commons:commons-compress:1.20'
+    implementation 'com.squareup.okhttp3:okhttp:4.11.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
 }

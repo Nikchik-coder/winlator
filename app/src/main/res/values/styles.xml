@@ -21,16 +21,16 @@
         <item name="radioButtonStyle">@style/RadioButton</item>
     </style>
     <style name="AppThemeLight" parent="@style/AppThemeBase">
-        <item name="colorAccent">#0288d1</item>
-        <item name="colorPrimary">#607d8b</item>
-        <item name="colorPrimaryDark">#455a64</item>
-        <item name="colorControlNormal">#e0e0e0</item>
-        <item name="colorPrimaryText">#424242</item>
-        <item name="colorSecondaryText">#757575</item>
-        <item name="colorPrimarySurface">#fafafa</item>
-        <item name="colorSecondarySurface">#ffffff</item>
-        <item name="colorPrimaryVariant">#607d8b</item>
-        <item name="colorSecondaryVariant">#d3dce0</item>
+        <item name="colorAccent">@color/retronexus_accent_muted</item>
+        <item name="colorPrimary">#2D3E52</item>
+        <item name="colorPrimaryDark">#1F2A3A</item>
+        <item name="colorControlNormal">#B8C4D0</item>
+        <item name="colorPrimaryText">#1A2332</item>
+        <item name="colorSecondaryText">#5C6B7A</item>
+        <item name="colorPrimarySurface">#F4F7FA</item>
+        <item name="colorSecondarySurface">#FFFFFF</item>
+        <item name="colorPrimaryVariant">@color/retronexus_accent_muted</item>
+        <item name="colorSecondaryVariant">#C5D0DC</item>
         <item name="colorError">#ef5350</item>
         <item name="popupMenuBackground">@drawable/content_dialog_background_light</item>
         <item name="toolboxBackground">@drawable/toolbox_light</item>
@@ -39,17 +39,22 @@
         <item name="progressBarIndeterminateImage">@drawable/progress_bar_indeterminate_light</item>
     </style>
     <style name="AppThemeDark" parent="@style/AppThemeBase">
-        <item name="colorAccent">#0288d1</item>
-        <item name="colorPrimary">#505963</item>
-        <item name="colorPrimaryDark">#3f474f</item>
-        <item name="colorControlNormal">#616161</item>
-        <item name="colorPrimaryText">#fafafa</item>
-        <item name="colorSecondaryText">#9e9e9e</item>
-        <item name="colorPrimarySurface">#1b1e21</item>
-        <item name="colorSecondarySurface">#2d3238</item>
-        <item name="colorPrimaryVariant">#56677a</item>
-        <item name="colorSecondaryVariant">#37424f</item>
-        <item name="colorError">#ef5350</item>
+        <item name="colorAccent">@color/retronexus_accent</item>
+        <item name="colorPrimary">@color/retronexus_primary</item>
+        <item name="colorPrimaryDark">@color/retronexus_primary_dark</item>
+        <item name="colorControlNormal">#5A6B7E</item>
+        <item name="colorPrimaryText">@color/retronexus_text_primary</item>
+        <item name="colorSecondaryText">@color/retronexus_text_secondary</item>
+        <item name="colorPrimarySurface">@color/retronexus_bg</item>
+        <item name="colorSecondarySurface">@color/retronexus_elevated</item>
+        <item name="colorPrimaryVariant">@color/retronexus_accent</item>
+        <item name="colorSecondaryVariant">#2E3D4F</item>
+        <item name="colorError">#F87171</item>
+        <item name="android:statusBarColor">@color/retronexus_primary_dark</item>
+        <item name="android:navigationBarColor">@color/retronexus_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:toolbarStyle">@style/ToolbarRetroDark</item>
+        <item name="toolbarStyle">@style/ToolbarRetroDark</item>
         <item name="popupMenuBackground">@drawable/content_dialog_background_dark</item>
         <item name="toolboxBackground">@drawable/toolbox_dark</item>
         <item name="panelBackground">@drawable/panel_background_dark</item>
@@ -153,8 +158,14 @@
     </style>
     <style name="Toolbar" parent="@android:style/Widget.Toolbar">
         <item name="android:background">?attr/colorPrimary</item>
-        <item name="titleTextColor">#ffffff</item>
+        <item name="android:elevation">4dp</item>
+        <item name="titleTextColor">@color/retronexus_text_primary</item>
         <item name="titleTextAppearance">@style/TitleTextAppearance</item>
+    </style>
+    <!-- Used by AppThemeDark so the top bar is visibly “RetroNexus” (teal gradient), not flat gray -->
+    <style name="ToolbarRetroDark" parent="@style/Toolbar">
+        <item name="android:background">@drawable/toolbar_retronexus_bg</item>
+        <item name="titleTextColor">@color/retronexus_text_primary</item>
     </style>
     <style name="BaseButton">
         <item name="android:layout_width">wrap_content</item>
@@ -253,12 +264,12 @@
     <style name="TableHeadRightLine">
         <item name="android:layout_width">1dp</item>
         <item name="android:layout_height">match_parent</item>
-        <item name="android:background">#0278b8</item>
+        <item name="android:background">?attr/colorAccent</item>
     </style>
     <style name="TableHeadBottomLine">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">1dp</item>
-        <item name="android:background">#0278b8</item>
+        <item name="android:background">?attr/colorAccent</item>
     </style>
     <style name="TableBodyRightLine">
         <item name="android:layout_width">1dp</item>

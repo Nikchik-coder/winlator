@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Winlator</string>
+    <string name="app_name">RetroNexus</string>
+    <string name="nav_header_tagline">Классические PC-игры на Android</string>
+    <string name="about_tagline">Wine и Box64/Box86 на телефоне — открытые компоненты, оболочка RetroNexus.</string>
     <string name="run">Запустить</string>
     <string name="edit">Редактировать</string>
     <string name="remove">Удалить</string>
     <string name="add">Добавить</string>
     <string name="shortcuts">Ярлыки</string>
-    <string name="containers">Контейнеры</string>
+    <string name="market">Маркет</string>
+    <string name="containers">Игры</string>
     <string name="input_controls">Управление вводом</string>
     <string name="no_items_to_display">Нет элементов для отображения</string>
     <string name="new_container">Новый контейнер</string>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Strong teal / ink palette (visibly different from stock Winlator gray-blue) -->
+    <color name="retronexus_bg">#06090D</color>
+    <color name="retronexus_surface">#0E141C</color>
+    <color name="retronexus_elevated">#121E2A</color>
+    <color name="retronexus_primary">#0D4D45</color>
+    <color name="retronexus_primary_dark">#051018</color>
+    <color name="retronexus_accent">#3FF5E0</color>
+    <color name="retronexus_accent_muted">#00A896</color>
+    <color name="retronexus_text_primary">#E8F0F7</color>
+    <color name="retronexus_text_secondary">#8FA3B8</color>
+    <color name="retronexus_placeholder">#2A3544</color>
+    <color name="retronexus_success">#34D399</color>
+</resources>
