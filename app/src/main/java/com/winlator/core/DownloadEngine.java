@@ -30,6 +30,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
@@ -41,6 +42,13 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 public class DownloadEngine {
+    public static class InstallStatus {
+        public volatile int percent = -1; // -1 => indeterminate
+        public volatile String status = "";
+    }
+
+    private static final ConcurrentHashMap<String, InstallStatus> ACTIVE_INSTALLS = new ConcurrentHashMap<>();
+
     public interface Callback {
         /** @param percent 0–100, or -1 when total size is unknown (use indeterminate UI) */
         default void onProgress(int percent, String status) {}
@@ -68,9 +76,51 @@ public class DownloadEngine {
         MAIN_HANDLER.post(() -> callback.onError(e));
     }
 
+    private static String getInstallKey(Game game) {
+        if (game == null) return "";
+        if (game.id != null && !game.id.isEmpty()) return game.id;
+        return game.title != null ? game.title : "";
+    }
+
+    public static InstallStatus getActiveInstallStatus(Game game) {
+        String key = getInstallKey(game);
+        if (key.isEmpty()) return null;
+        return ACTIVE_INSTALLS.get(key);
+    }
+
     public static void downloadAndInstall(Context context, Game game, String mode, Callback callback) {
         new Thread(() -> {
+            final String installKey = getInstallKey(game);
+            InstallStatus active = installKey.isEmpty() ? null : ACTIVE_INSTALLS.get(installKey);
+            if (active != null) {
+                // Already installing: just report current status so UI can resume.
+                reportProgress(callback, active.percent, active.status != null ? active.status : "Installing…");
+                return;
+            }
+
+            final InstallStatus status = new InstallStatus();
+            if (!installKey.isEmpty()) ACTIVE_INSTALLS.put(installKey, status);
+            final Callback trackingCallback = new Callback() {
+                @Override
+                public void onProgress(int percent, String statusText) {
+                    status.percent = percent;
+                    status.status = statusText != null ? statusText : "";
+                    if (callback != null) callback.onProgress(percent, statusText);
+                }
+
+                @Override
+                public void onSuccess() {
+                    if (callback != null) callback.onSuccess();
+                }
+
+                @Override
+                public void onError(Exception e) {
+                    if (callback != null) callback.onError(e);
+                }
+            };
+
             try {
+
                 if (game == null) throw new IllegalArgumentException("Game is null");
                 if (game.title == null || game.title.trim().isEmpty()) throw new IllegalArgumentException("Game title missing");
                 if (game.download_url == null || game.download_url.trim().isEmpty()) {
@@ -85,12 +135,19 @@ public class DownloadEngine {
 
                 File alreadyThere = findExeUnderGameDir(gamesDir, getExeName(game));
                 if (alreadyThere != null && alreadyThere.isFile()) {
-                    reportProgress(callback, 86, "Using existing files…");
+                    status.percent = 86;
+                    status.status = "Using existing files…";
+                    reportProgress(trackingCallback, status.percent, status.status);
                 } else {
-                    streamDownloadAndExtractZip(game.download_url, gamesDir, callback);
+                    streamDownloadAndExtractZip(game.download_url, gamesDir, trackingCallback);
                 }
 
-                reportProgress(callback, 88, "Setting up…");
+                // Download progress is measurable; the rest (patching/container setup) usually isn't.
+                // Use indeterminate progress so UI keeps animating during the install phase.
+                status.percent = -1;
+                status.status = "Installing…";
+                reportProgress(trackingCallback, status.percent, status.status);
+
                 // 2) Validate expected exe exists (root or nested folder — zips often have one extra dir)
                 String exeName = getExeName(game);
                 File exeFile = findExeUnderGameDir(gamesDir, exeName);
@@ -101,20 +158,30 @@ public class DownloadEngine {
 
                 // Optional: apply a small patch zip into the game root (e.g. NFS widescreen fix: scripts/ + dinput8.dll)
                 // config_preset example: { "patchZipUrl": "https://.../nfs_mw_widescreen_fix.zip" }
-                applyOptionalPatchZip(game, exeFile.getParentFile(), callback);
+                status.percent = -1;
+                status.status = "Applying fixes…";
+                reportProgress(trackingCallback, status.percent, status.status);
+                applyOptionalPatchZip(game, exeFile.getParentFile(), trackingCallback);
 
                 // 3) Create/update container + inject config
+                status.percent = -1;
+                status.status = "Creating container…";
+                reportProgress(trackingCallback, status.percent, status.status);
                 Container container = ensureContainer(context, game, mode);
                 if (container == null) {
                     throw new IllegalStateException("Failed to create container for " + game.title);
                 }
 
+                if (game.id != null && !game.id.isEmpty()) container.putExtra("retronexusGameId", game.id);
+                container.putExtra("retronexusGameInstallDir", gamesDir.getPath());
                 container.putExtra("retronexusExecPath", exeFile.getPath());
                 container.saveData();
 
-                reportSuccess(callback);
+                reportSuccess(trackingCallback);
             } catch (Exception e) {
-                reportError(callback, e);
+                reportError(trackingCallback, e);
+            } finally {
+                if (!installKey.isEmpty()) ACTIVE_INSTALLS.remove(installKey);
             }
         }).start();
     }
@@ -154,7 +221,7 @@ public class DownloadEngine {
         }
     }
 
-    private static File getGameInstallDir(Game game) {
+    public static File getGameInstallDir(Game game) {
         String safe = (game.title != null ? game.title : "Game").replaceAll("[^a-zA-Z0-9._-]", "_");
         return new File(Environment.getExternalStorageDirectory(), "RetroNexus/Games/" + safe);
     }
@@ -220,7 +287,8 @@ public class DownloadEngine {
             if (contentLength > 0) {
                 metered = new CountingInputStream(raw, contentLength, (read, total) -> {
                     int pct = (int) (read * 86L / total);
-                    reportProgress(callback, Math.min(86, pct), "Downloading…");
+                    int clamped = Math.min(86, pct);
+                    reportProgress(callback, clamped, "Downloading…");
                 });
             } else {
                 reportProgress(callback, -1, "Downloading…");

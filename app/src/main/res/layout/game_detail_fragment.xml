@@ -66,16 +66,37 @@
         app:trackColor="@color/retronexus_placeholder"
         app:trackThickness="4dp" />
 
-    <Button
-        android:id="@+id/InstallButton"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="INSTALL"
-        android:textAllCaps="true"
-        android:textColor="@android:color/white"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:backgroundTint="@color/retronexus_accent" />
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/InstallButton"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:layout_weight="1"
+            android:text="INSTALL"
+            android:textAllCaps="true"
+            android:textColor="@android:color/white"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:backgroundTint="@color/retronexus_accent" />
+
+        <Button
+            android:id="@+id/DeleteButton"
+            android:layout_width="0dp"
+            android:layout_height="64dp"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:text="DELETE"
+            android:textAllCaps="true"
+            android:textColor="@android:color/white"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:backgroundTint="@android:color/holo_red_dark"
+            android:visibility="gone" />
+    </LinearLayout>
 
 </LinearLayout>
