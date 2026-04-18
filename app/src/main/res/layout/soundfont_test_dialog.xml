@@ -49,7 +49,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <com.retronexus.widget.SimplePianoKeyboard
+        <com.winlator.widget.SimplePianoKeyboard
             android:id="@+id/SimplePianoKeyboard"
             android:layout_width="match_parent"
             android:layout_height="160dp"
