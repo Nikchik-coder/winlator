@@ -8,6 +8,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.content.res.ColorStateList;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -130,26 +131,25 @@ public class GameDetailFragment extends Fragment {
         installProgress.setVisibility(View.VISIBLE);
         if (s.percent < 0) {
             if (!installProgress.isIndeterminate()) {
+                // Material progress indicator can't change indeterminate mode while visible.
                 installProgress.hide();
                 installProgress.setVisibility(View.GONE);
                 installProgress.setIndeterminate(true);
                 installProgress.setVisibility(View.VISIBLE);
                 installProgress.show();
-            } else {
-                installProgress.show();
             }
         } else {
             if (installProgress.isIndeterminate()) {
+                // Material progress indicator can't change indeterminate mode while visible.
                 installProgress.hide();
                 installProgress.setVisibility(View.GONE);
                 installProgress.setIndeterminate(false);
                 installProgress.setVisibility(View.VISIBLE);
                 installProgress.show();
-            } else {
-                installProgress.show();
             }
             installProgress.setProgress(s.percent);
         }
+        installProgress.show();
     }
 
     private void confirmDelete() {
@@ -250,6 +250,10 @@ public class GameDetailFragment extends Fragment {
         installProgress.show();
         uiHandler.removeCallbacks(installPoller);
         uiHandler.post(installPoller);
+        if (getActivity() != null) {
+            // Avoid the device sleeping/freezing the app during multi-GB downloads.
+            getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
 
         DownloadEngine.downloadAndInstall(getContext(), game, mode, new DownloadEngine.Callback() {
             @Override
@@ -282,6 +286,7 @@ public class GameDetailFragment extends Fragment {
             public void onSuccess() {
                 if (getActivity() != null) {
                     getActivity().runOnUiThread(() -> {
+                        getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                         installProgress.hide();
                         installProgress.setVisibility(View.GONE);
                         installButton.setText("PLAY");
@@ -297,6 +302,7 @@ public class GameDetailFragment extends Fragment {
             public void onError(Exception e) {
                 if (getActivity() != null) {
                     getActivity().runOnUiThread(() -> {
+                        getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                         installProgress.hide();
                         installProgress.setVisibility(View.GONE);
                         Toast.makeText(getContext(), "Install failed: " + e.getMessage(), Toast.LENGTH_LONG).show();

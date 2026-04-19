@@ -3,6 +3,7 @@ package com.winlator.core;
 import android.content.Context;
 import android.content.Intent;
 import android.app.ActivityManager;
+import android.util.Log;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -42,6 +43,8 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 public class DownloadEngine {
+    private static final String INSTALL_MARKER_NAME = ".retronexus_install_complete";
+
     public static class InstallStatus {
         public volatile int percent = -1; // -1 => indeterminate
         public volatile String status = "";
@@ -58,7 +61,13 @@ public class DownloadEngine {
         void onError(Exception e);
     }
 
-    private static final OkHttpClient httpClient = new OkHttpClient();
+    // Large game archives can take a long time on mobile networks; default OkHttp read timeout is too short.
+    private static final OkHttpClient httpClient = new OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.SECONDS)   // no per-read timeout
+        .writeTimeout(0, TimeUnit.SECONDS)  // no per-write timeout
+        .callTimeout(0, TimeUnit.SECONDS)   // no overall timeout
+        .build();
     private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
 
     private static void reportProgress(Callback callback, int percent, String status) {
@@ -73,6 +82,7 @@ public class DownloadEngine {
 
     private static void reportError(Callback callback, Exception e) {
         if (callback == null) return;
+        Log.e("DownloadEngine", "Error during install", e);
         MAIN_HANDLER.post(() -> callback.onError(e));
     }
 
@@ -133,12 +143,19 @@ public class DownloadEngine {
                     throw new IllegalStateException("Unable to create install dir: " + gamesDir.getPath());
                 }
 
+                File installMarker = new File(gamesDir, INSTALL_MARKER_NAME);
                 File alreadyThere = findExeUnderGameDir(gamesDir, getExeName(game));
-                if (alreadyThere != null && alreadyThere.isFile()) {
+                if (alreadyThere != null && alreadyThere.isFile() && installMarker.isFile()) {
                     status.percent = 86;
                     status.status = "Using existing files…";
                     reportProgress(trackingCallback, status.percent, status.status);
                 } else {
+                    if (alreadyThere != null && alreadyThere.isFile() && !installMarker.isFile()) {
+                        Log.w("DownloadEngine", "Install marker missing; re-downloading to recover from partial install: " + gamesDir.getPath());
+                        status.percent = 0;
+                        status.status = "Re-downloading…";
+                        reportProgress(trackingCallback, status.percent, status.status);
+                    }
                     streamDownloadAndExtractZip(game.download_url, gamesDir, trackingCallback);
                 }
 
@@ -150,10 +167,16 @@ public class DownloadEngine {
 
                 // 2) Validate expected exe exists (root or nested folder — zips often have one extra dir)
                 String exeName = getExeName(game);
+                Log.d("DownloadEngine", "Searching for exe: " + exeName + " in " + gamesDir.getPath());
                 File exeFile = findExeUnderGameDir(gamesDir, exeName);
+
                 if (exeFile == null || !exeFile.isFile()) {
-                    throw new IllegalStateException("Missing exe after extraction: " + new File(gamesDir, exeName).getPath()
-                        + " (searched under " + gamesDir.getPath() + ")");
+                    Log.w("DownloadEngine", "Expected exe " + exeName + " not found. Searching for any .exe...");
+                    exeFile = findAnyExe(gamesDir);
+                }
+
+                if (exeFile == null || !exeFile.isFile()) {
+                    throw new IllegalStateException("Missing exe after extraction. Searched for " + exeName + " and others in " + gamesDir.getPath());
                 }
 
                 // Optional: apply a small patch zip into the game root (e.g. NFS widescreen fix: scripts/ + dinput8.dll)
@@ -162,6 +185,16 @@ public class DownloadEngine {
                 status.status = "Applying fixes…";
                 reportProgress(trackingCallback, status.percent, status.status);
                 applyOptionalPatchZip(game, exeFile.getParentFile(), trackingCallback);
+
+                // Mark extraction as complete so subsequent installs don't skip after a partial unzip.
+                try {
+                    if (!installMarker.isFile()) {
+                        boolean created = installMarker.createNewFile();
+                        Log.d("DownloadEngine", "Created install marker (" + created + "): " + installMarker.getPath());
+                    }
+                } catch (Exception e) {
+                    Log.w("DownloadEngine", "Failed to write install marker: " + installMarker.getPath(), e);
+                }
 
                 // 3) Create/update container + inject config
                 status.percent = -1;
@@ -207,6 +240,10 @@ public class DownloadEngine {
             File gamesDir = getGameInstallDir(game);
             String exeName = getExeName(game);
             File exeFile = findExeUnderGameDir(gamesDir, exeName);
+            if (exeFile == null || !exeFile.isFile()) {
+                // If config is missing/wrong, try to locate any exe so the user can still launch.
+                exeFile = findAnyExe(gamesDir);
+            }
             if (exeFile == null || !exeFile.isFile()) {
                 showToast(context, "Game files missing. Reinstall.");
                 return;
@@ -255,6 +292,28 @@ public class DownloadEngine {
         File direct = new File(gamesDir, exeName);
         if (direct.isFile()) return direct;
         return findFileNamedRecursive(gamesDir, exeName);
+    }
+
+    private static File findAnyExe(File dir) {
+        File[] list = dir.listFiles();
+        if (list == null) return null;
+        // Search files first
+        for (File child : list) {
+            if (child.isFile() && child.getName().toLowerCase().endsWith(".exe")) {
+                // Ignore common setup/uninst files
+                String name = child.getName().toLowerCase();
+                if (name.contains("unins") || name.contains("setup") || name.contains("dxwebsetup")) continue;
+                return child;
+            }
+        }
+        // Then subdirectories
+        for (File child : list) {
+            if (child.isDirectory()) {
+                File found = findAnyExe(child);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private static File findFileNamedRecursive(File dir, String fileName) {
