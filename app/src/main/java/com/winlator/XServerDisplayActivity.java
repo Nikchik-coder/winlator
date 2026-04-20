@@ -503,7 +503,13 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
         boolean enableWineDebug = preferences.getBoolean("enable_wine_debug", false);
         String wineDebugChannels = preferences.getString("wine_debug_channels", SettingsFragment.DEFAULT_WINE_DEBUG_CHANNELS);
-        envVars.put("WINEDEBUG", enableWineDebug && !wineDebugChannels.isEmpty() ? "+"+wineDebugChannels.replace(",", ",+") : "-all");
+        if (enableWineDebug && !wineDebugChannels.isEmpty()) {
+            envVars.put("WINEDEBUG", "+"+wineDebugChannels.replace(",", ",+"));
+        } else {
+            // Force basic D3D9 and DXVK debug logs to pinpoint crashes on app start
+            envVars.put("WINEDEBUG", "err+module,err+d3d,err+winediag,warn+seh");
+            envVars.put("DXVK_LOG_LEVEL", "debug");
+        }
 
         FileUtils.clear(rootFS.getTmpDir());
 
@@ -517,9 +523,12 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             String guestExecutable = "wine explorer /desktop="+desktopName+","+xServer.screenInfo+" "+getWineStartCommand();
             guestProgramLauncherComponent.setGuestExecutable(guestExecutable);
 
-            envVars.putAll(container.getEnvVars());
+            String containerEnvVars = container.getEnvVars();
+            Log.d("XServerDisplay", "Container envVars: " + containerEnvVars);
+            envVars.putAll(containerEnvVars);
             if (shortcut != null) envVars.putAll(shortcut.getExtra("envVars"));
             if (!envVars.has("WINEESYNC")) envVars.put("WINEESYNC", "1");
+            Log.d("XServerDisplay", "Final WINEDLLOVERRIDES: " + envVars.get("WINEDLLOVERRIDES"));
 
             guestProgramLauncherComponent.setBox64Preset(shortcut != null ? shortcut.getExtra("box64Preset", container.getBox64Preset()) : container.getBox64Preset());
         }

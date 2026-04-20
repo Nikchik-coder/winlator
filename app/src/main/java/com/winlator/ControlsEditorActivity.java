@@ -1,5 +1,6 @@
 package com.winlator;
 
+import android.app.Activity;
 import android.content.Context;
 import android.graphics.BitmapFactory;
 import android.graphics.PointF;
@@ -92,6 +93,13 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
             }
             return true;
         });
+    }
+
+    @Override
+    public void finish() {
+        if (profile != null) profile.save();
+        setResult(Activity.RESULT_OK);
+        super.finish();
     }
 
     @Override

@@ -35,7 +35,11 @@ public class RootFS {
     }
 
     public boolean isValid() {
-        return rootDir.isDirectory() && getRFSVersionFile().exists();
+        if (!rootDir.isDirectory() || !getRFSVersionFile().exists()) return false;
+        File wineBin = new File(rootDir, "opt/wine/bin/wine");
+        if (wineBin.isFile()) return true;
+        File wine64 = new File(rootDir, "opt/wine/bin/wine64");
+        return wine64.isFile();
     }
 
     public int getVersion() {

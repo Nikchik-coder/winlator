@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">RetroNexus</string>
+    <string name="lock_title">Enter access code</string>
+    <string name="lock_subtitle">This device must be activated to continue.</string>
+    <string name="lock_code_hint">8-character code</string>
+    <string name="lock_unlock_button">Unlock</string>
+    <string name="lock_invalid_code_length">Please enter an 8-character code.</string>
+    <string name="lock_invalid_or_bound">Invalid code or code is bound to another device.</string>
+    <string name="lock_unlocked_toast">Unlocked</string>
     <string name="nav_header_tagline">Classic PC games on Android</string>
     <string name="about_tagline">Wine and Box64/Box86 on mobile — open-source components, RetroNexus shell.</string>
     <string name="run">Run</string>

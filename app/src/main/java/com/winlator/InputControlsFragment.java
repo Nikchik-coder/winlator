@@ -84,6 +84,18 @@ public class InputControlsFragment extends Fragment {
             }
             importProfileCallback = null;
         }
+        else if (requestCode == MainActivity.EDIT_INPUT_CONTROLS_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+            // Reload profiles from disk to reflect any changes made in ControlsEditorActivity
+            manager.loadProfiles(false);
+            if (currentProfile != null) currentProfile = manager.getProfile(currentProfile.id);
+
+            View root = getView();
+            if (root != null) {
+                Spinner spinner = root.findViewById(R.id.SProfile);
+                if (spinner != null) loadProfileSpinner(spinner);
+            }
+            if (updateLayout != null) updateLayout.run();
+        }
     }
 
     @Nullable
@@ -204,7 +216,7 @@ public class InputControlsFragment extends Fragment {
             if (currentProfile != null) {
                 Intent intent = new Intent(context, ControlsEditorActivity.class);
                 intent.putExtra("profile_id", currentProfile.id);
-                startActivity(intent);
+                startActivityForResult(intent, MainActivity.EDIT_INPUT_CONTROLS_REQUEST_CODE);
             }
             else AppUtils.showToast(context, R.string.no_profile_selected);
         });

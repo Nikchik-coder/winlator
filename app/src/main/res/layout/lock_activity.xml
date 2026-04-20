@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorPrimarySurface"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <ImageView
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:layout_marginBottom="24dp"
+        android:contentDescription="@string/app_name"
+        android:scaleType="fitCenter"
+        android:src="@drawable/retronexus_logo" />
+
+    <TextView
+        style="@style/TitleTextAppearance"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="6dp"
+        android:text="@string/lock_title" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="18dp"
+        android:text="@string/lock_subtitle"
+        android:textColor="?attr/colorSecondaryText" />
+
+    <EditText
+        android:id="@+id/ETCode"
+        style="@style/EditText"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:layout_marginBottom="10dp"
+        android:gravity="center"
+        android:hint="@string/lock_code_hint"
+        android:inputType="textNoSuggestions|textVisiblePassword|textCapCharacters"
+        android:maxLength="8" />
+
+    <TextView
+        android:id="@+id/TVError"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:textColor="?attr/colorError"
+        android:visibility="gone" />
+
+    <ProgressBar
+        android:id="@+id/PBLoading"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:indeterminate="true"
+        android:visibility="gone" />
+
+    <Button
+        android:id="@+id/BTUnlock"
+        style="@style/ButtonPositive"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:text="@string/lock_unlock_button" />
+
+</LinearLayout>
+

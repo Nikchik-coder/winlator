@@ -338,6 +338,13 @@ public abstract class WineUtils {
             registryEditor.setStringValue(key64, "CurrentBuildNumber", currentBuild);
             registryEditor.setStringValue(key64, "ProductName", "Microsoft "+winVersion.description);
         }
+
+        File userRegFile = new File(container.getRootDir(), ".wine/user.reg");
+        if (userRegFile.exists()) {
+            try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
+                registryEditor.setStringValue("Software\\Wine", "Version", winVersion.version);
+            }
+        }
     }
 
     private static void setupSystemFonts(WineRegistryEditor registryEditor) {

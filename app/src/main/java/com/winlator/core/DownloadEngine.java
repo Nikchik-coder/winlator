@@ -237,6 +237,12 @@ public class DownloadEngine {
                 return;
             }
 
+            // Apply latest presets before launching (so Supabase updates take effect without reinstall).
+            try {
+                applyPreset(context, target, game, "auto");
+                target.saveData();
+            } catch (Exception ignored) {}
+
             File gamesDir = getGameInstallDir(game);
             String exeName = getExeName(game);
             File exeFile = findExeUnderGameDir(gamesDir, exeName);
@@ -507,12 +513,145 @@ public class DownloadEngine {
         container.setGraphicsDriver(graphicsDriver);
 
         EnvVars env = new EnvVars(container.getEnvVars());
-        env.put("WINEDLLOVERRIDES", "dinput8,d3d9=n,b");
-        container.setEnvVars(env.toString());
+        String baseDllOverrides = "dinput8,d3d9=n,b";
+        Log.d("DownloadEngine", "Initial envVars: " + env.toString());
 
-        applyWinVersion(container, game);
+        try {
+            if (preset != null && preset.has("envVars")) {
+                Log.d("DownloadEngine", "Found envVars in preset");
+                JsonObject envVars = preset.getAsJsonObject("envVars");
+                for (String key : envVars.keySet()) {
+                    String val = envVars.get(key).getAsString();
+                    Log.d("DownloadEngine", "Preset envVar: " + key + "=" + val);
+                    if ("WINEDLLOVERRIDES".equals(key) && val != null && !val.isEmpty()) {
+                        val = val + "," + baseDllOverrides;
+                    }
+                    env.put(key, val);
+                }
+            } else if (game != null && game.config_preset != null && game.config_preset.isJsonObject() && game.config_preset.getAsJsonObject().has("envVars")) {
+                Log.d("DownloadEngine", "Found envVars in root config_preset");
+                JsonObject envVars = game.config_preset.getAsJsonObject().getAsJsonObject("envVars");
+                for (String key : envVars.keySet()) {
+                    String val = envVars.get(key).getAsString();
+                    Log.d("DownloadEngine", "Root envVar: " + key + "=" + val);
+                    if ("WINEDLLOVERRIDES".equals(key) && val != null && !val.isEmpty()) {
+                        val = val + "," + baseDllOverrides;
+                    }
+                    env.put(key, val);
+                }
+            } else {
+                Log.d("DownloadEngine", "No envVars found in preset or config_preset");
+            }
+        } catch (Exception e) {
+            Log.e("DownloadEngine", "Error applying envVars", e);
+        }
+
+            // For FlatOut 2: disable Android audio driver to prevent mmdevapi crash
+        if (game != null && "Flatout 2".equalsIgnoreCase(game.title)) {
+            String currentOverrides = env.get("WINEDLLOVERRIDES");
+            if (currentOverrides == null || currentOverrides.isEmpty()) {
+                currentOverrides = baseDllOverrides;
+            }
+            // Disable wineandroid.drv to force PulseAudio, disable mmdevapi entirely
+            env.put("WINEDLLOVERRIDES", "wineandroid.drv=d;mmdevapi=d;" + currentOverrides);
+            Log.d("DownloadEngine", "FlatOut 2: Disabled Android audio driver and mmdevapi");
+        } else if (!env.has("WINEDLLOVERRIDES")) {
+            Log.d("DownloadEngine", "No WINEDLLOVERRIDES set, using default");
+            env.put("WINEDLLOVERRIDES", baseDllOverrides);
+        }
+
+        String finalEnvVars = env.toString();
+        Log.d("DownloadEngine", "Final envVars: " + finalEnvVars);
+        container.setEnvVars(finalEnvVars);
+
+        applyWinVersion(container, game, preset);
+        applyAudioDriver(container, game, preset);
+        applyWinComponents(container, game, preset);
+        applyStartupSelection(container, game, preset);
+        applyBox64Preset(container, game, preset);
         applyCpuAffinityDefaults(container);
         ensureExternalStorageDrive(container);
+        restoreBackedUpDlls(container);
+        cleanupLegacyDllOverrides(container);
+        disableMmdevapiForFlatout2(container, game);
+
+        // Save all container changes
+        container.saveData();
+        Log.d("DownloadEngine", "Container preset applied and saved for " + (game != null ? game.title : "unknown"));
+    }
+
+    /**
+     * Nuclear option for FlatOut 2: Rename mmdevapi.dll to prevent audio crash.
+     * This makes the game run silent but playable.
+     */
+    private static void disableMmdevapiForFlatout2(Container container, Game game) {
+        try {
+            if (game == null || !"Flatout 2".equalsIgnoreCase(game.title)) return;
+            
+            File rootDir = container.getRootDir();
+            String[] paths = {
+                ".wine/drive_c/windows/system32/mmdevapi.dll",
+                ".wine/drive_c/windows/syswow64/mmdevapi.dll"
+            };
+            
+            for (String path : paths) {
+                File dllFile = new File(rootDir, path);
+                File bakFile = new File(rootDir, path + ".bak");
+                if (dllFile.exists() && !bakFile.exists()) {
+                    if (dllFile.renameTo(bakFile)) {
+                        Log.d("DownloadEngine", "Nuclear option: Disabled mmdevapi for FlatOut 2: " + path);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w("DownloadEngine", "Failed to disable mmdevapi for FlatOut 2", e);
+        }
+    }
+
+    /**
+     * Restore any DLLs that were renamed to .bak by previous app versions so the Wine prefix is back to a clean state.
+     */
+    private static void restoreBackedUpDlls(Container container) {
+        try {
+            File rootDir = container.getRootDir();
+            String[] dllsToRestore = {"mmdevapi.dll", "avrt.dll"};
+            String[] paths = {
+                ".wine/drive_c/windows/system32/",
+                ".wine/drive_c/windows/syswow64/"
+            };
+            for (String path : paths) {
+                File dir = new File(rootDir, path);
+                if (!dir.exists()) continue;
+                for (String dll : dllsToRestore) {
+                    File bakFile = new File(dir, dll + ".bak");
+                    File dllFile = new File(dir, dll);
+                    if (bakFile.exists() && !dllFile.exists()) {
+                        if (bakFile.renameTo(dllFile)) {
+                            Log.d("DownloadEngine", "Restored DLL: " + dllFile.getPath());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w("DownloadEngine", "Failed to restore backed-up DLLs", e);
+        }
+    }
+
+    /**
+     * Remove the mmdevapi/avrt DllOverrides entries written by older app versions. They were set to "" (disabled),
+     * which prevented Wine's built-in mmdevapi from loading and left the game in a half-initialized audio state.
+     */
+    private static void cleanupLegacyDllOverrides(Container container) {
+        try {
+            File userRegFile = new File(container.getRootDir(), ".wine/user.reg");
+            if (!userRegFile.exists()) return;
+            try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
+                registryEditor.removeValue("Software\\Wine\\DllOverrides", "mmdevapi");
+                registryEditor.removeValue("Software\\Wine\\DllOverrides", "avrt");
+            }
+        } catch (Exception e) {
+            Log.w("DownloadEngine", "Failed to cleanup legacy DllOverrides", e);
+        }
     }
 
     /**
@@ -560,19 +699,136 @@ public class DownloadEngine {
         return "graphics";
     }
 
-    private static void applyWinVersion(Container container, Game game) {
-        // Optional config: { "winVersion": "winxp" }
+    private static void applyWinVersion(Container container, Game game, JsonObject modePreset) {
+        // Optional config: { "winVersion": "winxp" } or { "graphics": { "winVersion": "winxp" } }
         try {
-            if (game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+            String v = null;
+            String source = null;
+            if (modePreset != null && modePreset.has("winVersion")) {
+                v = modePreset.get("winVersion").getAsString();
+                source = "modePreset";
+            }
+            if (v == null && game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
                 JsonObject obj = game.config_preset.getAsJsonObject();
                 if (obj.has("winVersion")) {
-                    String v = obj.get("winVersion").getAsString();
-                    int idx = findWinVersionIndex(v);
-                    if (idx != -1) WineUtils.setWinVersion(container, idx);
-                    return;
+                    v = obj.get("winVersion").getAsString();
+                    source = "root config";
                 }
             }
+            if (v == null) {
+                Log.d("DownloadEngine", "No winVersion specified in preset");
+                return;
+            }
+            int idx = findWinVersionIndex(v);
+            if (idx != -1) {
+                WineUtils.setWinVersion(container, idx);
+                Log.d("DownloadEngine", "Applied winVersion=" + v + " from " + source);
+            } else {
+                Log.w("DownloadEngine", "Unknown winVersion: " + v);
+            }
+        } catch (Exception e) {
+            Log.w("DownloadEngine", "Failed to apply winVersion", e);
+        }
+    }
+
+    private static void applyAudioDriver(Container container, Game game, JsonObject modePreset) {
+        // Optional config: { "audioDriver": "alsa" } or { "graphics": { "audioDriver": "pulseaudio" } }
+        try {
+            String v = null;
+            if (modePreset != null && modePreset.has("audioDriver")) v = modePreset.get("audioDriver").getAsString();
+            if ((v == null || v.isEmpty()) && game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+                JsonObject obj = game.config_preset.getAsJsonObject();
+                if (obj.has("audioDriver")) v = obj.get("audioDriver").getAsString();
+            }
+            if (v == null || v.isEmpty()) return;
+            container.setAudioDriver(v);
+
+            // Disable mmdevapi entirely to prevent crashes in games that use it
+            // mmdevapi is buggy in Wine on Android; disabling it forces DirectSound fallback
+            File userRegFile = new File(container.getRootDir(), ".wine/user.reg");
+            if (userRegFile.exists()) {
+                try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
+                    registryEditor.setStringValue("Software\\Wine\\DllOverrides", "mmdevapi", "disabled");
+                    registryEditor.setStringValue("Software\\Wine\\DllOverrides", "avrt", "disabled");
+                    Log.d("DownloadEngine", "Disabled mmdevapi/avrt to prevent audio crashes");
+                }
+            }
+        } catch (Exception e) {
+            Log.w("DownloadEngine", "Failed to apply audio driver settings", e);
+        }
+    }
+
+    private static void applyWinComponents(Container container, Game game, JsonObject modePreset) {
+        // Optional config: { "wincomponents": "directsound=1,wmdecoder=0,..." }
+        try {
+            String v = null;
+            if (modePreset != null && modePreset.has("wincomponents")) v = modePreset.get("wincomponents").getAsString();
+            if ((v == null || v.isEmpty()) && game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+                JsonObject obj = game.config_preset.getAsJsonObject();
+                if (obj.has("wincomponents")) v = obj.get("wincomponents").getAsString();
+            }
+            if (v == null || v.isEmpty()) return;
+            container.setWinComponents(v);
         } catch (Exception ignored) {}
+    }
+
+    private static void applyStartupSelection(Container container, Game game, JsonObject modePreset) {
+        // Optional config: { "startupSelection": "normal"|"essential"|"aggressive"|0|1|2 }
+        try {
+            String v = null;
+            if (modePreset != null && modePreset.has("startupSelection")) v = modePreset.get("startupSelection").getAsString();
+            if ((v == null || v.isEmpty()) && game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+                JsonObject obj = game.config_preset.getAsJsonObject();
+                if (obj.has("startupSelection")) v = obj.get("startupSelection").getAsString();
+            }
+            if (v == null || v.isEmpty()) return;
+
+            byte sel;
+            if ("0".equals(v) || "normal".equalsIgnoreCase(v)) sel = Container.STARTUP_SELECTION_NORMAL;
+            else if ("2".equals(v) || "aggressive".equalsIgnoreCase(v)) sel = Container.STARTUP_SELECTION_AGGRESSIVE;
+            else if ("1".equals(v) || "essential".equalsIgnoreCase(v)) sel = Container.STARTUP_SELECTION_ESSENTIAL;
+            else return;
+
+            container.setStartupSelection(sel);
+        } catch (Exception ignored) {}
+    }
+
+    private static void applyBox64Preset(Container container, Game game, JsonObject modePreset) {
+        // Optional config: { "box64Preset": "STABILITY"|"CONSERVATIVE"|"INTERMEDIATE"|"PERFORMANCE" }
+        // Also supports custom env vars: { "box64EnvVars": { "BOX64_DYNAREC_SAFEFLAGS": "0", ... } }
+        try {
+            String v = null;
+            if (modePreset != null && modePreset.has("box64Preset")) v = modePreset.get("box64Preset").getAsString();
+            if ((v == null || v.isEmpty()) && game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+                JsonObject obj = game.config_preset.getAsJsonObject();
+                if (obj.has("box64Preset")) v = obj.get("box64Preset").getAsString();
+            }
+            if (v != null && !v.isEmpty()) {
+                container.setBox64Preset(v);
+                Log.d("DownloadEngine", "Applied box64Preset=" + v);
+            }
+
+            // Apply custom Box64 env vars if specified (overrides preset values)
+            JsonObject box64EnvVars = null;
+            if (modePreset != null && modePreset.has("box64EnvVars")) {
+                box64EnvVars = modePreset.getAsJsonObject("box64EnvVars");
+            } else if (game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+                JsonObject obj = game.config_preset.getAsJsonObject();
+                if (obj.has("box64EnvVars")) box64EnvVars = obj.getAsJsonObject("box64EnvVars");
+            }
+
+            if (box64EnvVars != null) {
+                EnvVars env = new EnvVars(container.getEnvVars());
+                for (String key : box64EnvVars.keySet()) {
+                    String val = box64EnvVars.get(key).getAsString();
+                    env.put(key, val);
+                    Log.d("DownloadEngine", "Applied custom Box64 env: " + key + "=" + val);
+                }
+                container.setEnvVars(env.toString());
+            }
+        } catch (Exception e) {
+            Log.w("DownloadEngine", "Failed to apply Box64 settings", e);
+        }
     }
 
     private static int findWinVersionIndex(String version) {
