@@ -31,6 +31,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -186,6 +187,8 @@ public class DownloadEngine {
                 reportProgress(trackingCallback, status.percent, status.status);
                 applyOptionalPatchZip(game, exeFile.getParentFile(), trackingCallback);
 
+                warnIfNfsUg2HasUnderground1WidescreenFix(exeFile);
+
                 // Mark extraction as complete so subsequent installs don't skip after a partial unzip.
                 try {
                     if (!installMarker.isFile()) {
@@ -258,6 +261,16 @@ public class DownloadEngine {
             Intent intent = new Intent(context, XServerDisplayActivity.class);
             intent.putExtra("container_id", target.id);
             intent.putExtra("exec_path", exeFile.getPath()); // bypass desktop and run directly
+            String execArgs = getExecArgs(game, "auto");
+            if (execArgs != null && !execArgs.trim().isEmpty()) {
+                intent.putExtra("exec_args", execArgs.trim());
+            }
+            if (shouldAutoFullscreen(game, "auto")) {
+                intent.putExtra("auto_fullscreen", true);
+            }
+            if (isWarcraft3(game)) {
+                intent.putExtra("force_windows_fullscreen", true);
+            }
             context.startActivity(intent);
         } catch (Exception e) {
             if (context != null) showToast(context, "Launch failed: " + e.getMessage());
@@ -405,6 +418,22 @@ public class DownloadEngine {
         streamDownloadAndExtractZip(patchUrl, gameRootDir, callback);
     }
 
+    /**
+     * ThirteenAG ships separate fixes: NFSUnderground.* = NFSU1, NFSUnderground2.* = NFSU2.
+     * A mis-packaged zip (UG2 exe + UG1 fix) loads dinput8 but never patches — game stays 4:3.
+     */
+    private static void warnIfNfsUg2HasUnderground1WidescreenFix(File exeFile) {
+        if (exeFile == null || !exeFile.isFile()) return;
+        if (!"speed2.exe".equalsIgnoreCase(exeFile.getName())) return;
+        File scripts = new File(exeFile.getParentFile(), "scripts");
+        if (!scripts.isDirectory()) return;
+        boolean ug2 = new File(scripts, "NFSUnderground2.WidescreenFix.ini").isFile();
+        boolean ug1 = new File(scripts, "NFSUnderground.WidescreenFix.ini").isFile();
+        if (ug1 && !ug2) {
+            Log.e("DownloadEngine", "Widescreen: game is NFS Underground 2 (speed2.exe) but scripts/ contains NFS Underground 1 fix (NFSUnderground.WidescreenFix.*). Replace with ThirteenAG NFSUnderground2.WidescreenFix or set config_preset.patchZipUrl to that zip.");
+        }
+    }
+
     private static String getPatchZipUrl(Game game) {
         try {
             if (game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
@@ -508,12 +537,27 @@ public class DownloadEngine {
             }
         }
 
+        final boolean enableDinput8Override = shouldEnableDinput8Override(game, preset);
+
+        // NFS UG2:
+        // - If the user ships a ThirteenAG loader (enableDinput8Override=true), prefer WineD3D to reduce mod-related crashes.
+        // - If the user ships a patched exe (enableDinput8Override=false), keep DXVK default for performance.
+        // Respect explicit config_preset dxwrapper if set.
+        if (isNfsUnderground2(game) && enableDinput8Override && (preset == null || !preset.has("dxwrapper"))) {
+            dxwrapper = DXWrappers.WINED3D;
+            Log.i("DownloadEngine", "NFS Underground 2: using WineD3D for dinput8-loader stability (set graphics/performance.dxwrapper to override)");
+        }
+
         container.setScreenSize(screenSize);
         container.setDXWrapper(dxwrapper);
         container.setGraphicsDriver(graphicsDriver);
 
         EnvVars env = new EnvVars(container.getEnvVars());
-        String baseDllOverrides = "dinput8,d3d9=n,b";
+        // Default dll overrides:
+        // - d3d9=n,b helps some D3D9 titles (and matches our historical Wine config guidance)
+        // - dinput8=n,b is needed for ThirteenAG-style fixes (dinput8.dll loader in game dir)
+        // UG2 is special: users may ship a patched exe (UniWS) and must NOT load a dinput8 loader that crashes on Box64.
+        final String baseDllOverrides = enableDinput8Override ? "dinput8=n,b;d3d9=n,b" : "d3d9=n,b";
         Log.d("DownloadEngine", "Initial envVars: " + env.toString());
 
         try {
@@ -524,7 +568,7 @@ public class DownloadEngine {
                     String val = envVars.get(key).getAsString();
                     Log.d("DownloadEngine", "Preset envVar: " + key + "=" + val);
                     if ("WINEDLLOVERRIDES".equals(key) && val != null && !val.isEmpty()) {
-                        val = val + "," + baseDllOverrides;
+                        val = val + ";" + baseDllOverrides;
                     }
                     env.put(key, val);
                 }
@@ -535,7 +579,7 @@ public class DownloadEngine {
                     String val = envVars.get(key).getAsString();
                     Log.d("DownloadEngine", "Root envVar: " + key + "=" + val);
                     if ("WINEDLLOVERRIDES".equals(key) && val != null && !val.isEmpty()) {
-                        val = val + "," + baseDllOverrides;
+                        val = val + ";" + baseDllOverrides;
                     }
                     env.put(key, val);
                 }
@@ -560,9 +604,14 @@ public class DownloadEngine {
             env.put("WINEDLLOVERRIDES", baseDllOverrides);
         }
 
+        // Ensure overrides are present (fixes older containers and malformed preset strings).
+        ensureDllOverrides(env, enableDinput8Override);
+
         String finalEnvVars = env.toString();
-        Log.d("DownloadEngine", "Final envVars: " + finalEnvVars);
+        Log.i("DownloadEngine", "Final envVars: " + finalEnvVars);
         container.setEnvVars(finalEnvVars);
+
+        applyWarcraft3WidescreenRegistry(container, game, screenSize);
 
         applyWinVersion(container, game, preset);
         applyAudioDriver(container, game, preset);
@@ -651,6 +700,108 @@ public class DownloadEngine {
             }
         } catch (Exception e) {
             Log.w("DownloadEngine", "Failed to cleanup legacy DllOverrides", e);
+        }
+    }
+
+    /** Ensure our baseline WINEDLLOVERRIDES entries exist (d3d9 always; dinput8 only when enabled). */
+    private static void ensureDllOverrides(EnvVars env, boolean enableDinput8Override) {
+        if (env == null) return;
+        String w = env.get("WINEDLLOVERRIDES");
+        if (w == null) w = "";
+
+        boolean needD3d9 = !w.contains("d3d9=n,b");
+        boolean needDinput = enableDinput8Override && !w.contains("dinput8=n,b");
+
+        if (w.isEmpty()) {
+            if (needDinput) env.put("WINEDLLOVERRIDES", "dinput8=n,b;d3d9=n,b");
+            else if (needD3d9) env.put("WINEDLLOVERRIDES", "d3d9=n,b");
+            return;
+        }
+
+        if (needDinput) w = w + ";dinput8=n,b";
+        if (needD3d9) w = w + ";d3d9=n,b";
+        env.put("WINEDLLOVERRIDES", w);
+    }
+
+    /**
+     * Default behavior:
+     * - Enable dinput8 override for most games (so WidescreenFixesPack-style loaders work).
+     * - Disable it for NFS Underground 2 (UniWS patched EXE path; avoid dinput8 loader crashes).
+     *
+     * Override from Supabase by setting `enableDinput8Override: true|false` in the mode preset
+     * (graphics/performance) or in root config_preset.
+     */
+    private static boolean shouldEnableDinput8Override(Game game, JsonObject modePreset) {
+        Boolean explicit = getBooleanConfig(modePreset, game, "enableDinput8Override");
+        if (explicit != null) return explicit;
+        if (isNfsUnderground2(game)) return false;
+        return true;
+    }
+
+    private static Boolean getBooleanConfig(JsonObject modePreset, Game game, String key) {
+        try {
+            if (modePreset != null && modePreset.has(key)) return modePreset.get(key).getAsBoolean();
+            if (game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+                JsonObject obj = game.config_preset.getAsJsonObject();
+                if (obj.has(key)) return obj.get(key).getAsBoolean();
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private static boolean shouldAutoFullscreen(Game game, String mode) {
+        try {
+            JsonObject modePreset = getModePreset(game, mode);
+            Boolean explicit = getBooleanConfig(modePreset, game, "autoFullscreen");
+            if (explicit == null) explicit = getBooleanConfig(modePreset, game, "auto_fullscreen");
+            if (explicit != null) return explicit;
+        } catch (Exception ignored) {}
+        // Default: Warcraft III benefits a lot from stretch fullscreen for FMVs / window changes.
+        return isWarcraft3(game);
+    }
+
+    private static String getExecArgs(Game game, String mode) {
+        try {
+            JsonObject modePreset = getModePreset(game, mode);
+            if (modePreset != null && modePreset.has("execArgs")) return modePreset.get("execArgs").getAsString();
+            if (modePreset != null && modePreset.has("exec_args")) return modePreset.get("exec_args").getAsString();
+            if (game != null && game.config_preset != null && game.config_preset.isJsonObject()) {
+                JsonObject obj = game.config_preset.getAsJsonObject();
+                if (obj.has("execArgs")) return obj.get("execArgs").getAsString();
+                if (obj.has("exec_args")) return obj.get("exec_args").getAsString();
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    private static boolean isWarcraft3(Game game) {
+        if (game == null) return false;
+        String exe = getExeName(game);
+        if (exe != null && exe.toLowerCase(Locale.US).contains("frozen throne")) return true;
+        String t = game.title;
+        return t != null && t.toLowerCase(Locale.US).contains("warcraft");
+    }
+
+    private static void applyWarcraft3WidescreenRegistry(Container container, Game game, String screenSize) {
+        try {
+            if (container == null || !isWarcraft3(game)) return;
+            if (screenSize == null || !screenSize.contains("x")) return;
+            String[] parts = screenSize.split("x");
+            if (parts.length != 2) return;
+            int w = Integer.parseInt(parts[0].trim());
+            int h = Integer.parseInt(parts[1].trim());
+
+            // Warcraft III reads resolution from HKCU. Write it once into the prefix so users don't need regedit scripts.
+            File wineDir = new File(container.getRootDir(), ".wine");
+            if (!wineDir.exists()) wineDir.mkdirs();
+            File userRegFile = new File(container.getRootDir(), ".wine/user.reg");
+            try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
+                registryEditor.setDwordValue("Software\\Blizzard Entertainment\\Warcraft III\\Video", "reswidth", w);
+                registryEditor.setDwordValue("Software\\Blizzard Entertainment\\Warcraft III\\Video", "resheight", h);
+            }
+            Log.i("DownloadEngine", "Warcraft III: wrote registry reswidth/resheight=" + w + "x" + h);
+        } catch (Exception e) {
+            Log.w("DownloadEngine", "Warcraft III: failed to write widescreen registry", e);
         }
     }
 
@@ -767,7 +918,9 @@ public class DownloadEngine {
                 JsonObject obj = game.config_preset.getAsJsonObject();
                 if (obj.has("wincomponents")) v = obj.get("wincomponents").getAsString();
             }
-            if (v == null || v.isEmpty()) return;
+            if (v == null || v.isEmpty()) {
+                return;
+            }
             container.setWinComponents(v);
         } catch (Exception ignored) {}
     }
@@ -861,6 +1014,13 @@ public class DownloadEngine {
             }
         } catch (Exception ignored) {}
         return "speed.exe";
+    }
+
+    private static boolean isNfsUnderground2(Game game) {
+        if (game == null) return false;
+        if ("speed2.exe".equalsIgnoreCase(getExeName(game))) return true;
+        String t = game.title;
+        return t != null && t.toLowerCase(Locale.US).contains("underground 2");
     }
 
     private static JsonObject getModePreset(Game game, String mode) {

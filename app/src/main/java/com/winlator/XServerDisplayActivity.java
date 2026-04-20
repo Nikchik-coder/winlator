@@ -138,6 +138,8 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     private Win32AppWorkarounds win32AppWorkarounds;
     private String screenEffectProfile;
     private volatile boolean guestWindowShown = false;
+    private boolean autoFullscreen = false;
+    private boolean forceWindowsFullscreen = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -159,11 +161,19 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         NavigationView navigationView = findViewById(R.id.NavigationView);
         ProcessHelper.removeAllDebugCallbacks();
         final boolean directLaunch = getIntent().hasExtra("exec_path");
+        autoFullscreen = directLaunch && getIntent().getBooleanExtra("auto_fullscreen", false);
+        forceWindowsFullscreen = directLaunch && getIntent().getBooleanExtra("force_windows_fullscreen", false);
         boolean enableLogs = directLaunch || preferences.getBoolean("enable_wine_debug", false) || preferences.getInt("box64_logs", 0) >= 1;
         if (enableLogs) ProcessHelper.addDebugCallback(debugDialog = new DebugDialog(this));
         if (directLaunch) {
             // Ensure we don't lose Wine/Box64 output even when the user hasn't enabled logs in settings.
             ProcessHelper.addDebugCallback(line -> Log.d("Guest", line));
+        }
+        if (directLaunch && getIntent().hasExtra("exec_args")) {
+            String extraExecArgs = getIntent().getStringExtra("exec_args");
+            if (extraExecArgs != null && !extraExecArgs.trim().isEmpty()) {
+                getOverrideEnvVars().put("EXTRA_EXEC_ARGS", extraExecArgs.trim());
+            }
         }
         Menu menu = navigationView.getMenu();
         menu.findItem(R.id.menu_item_logs).setVisible(enableLogs);
@@ -330,6 +340,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         if (environment != null) {
             xServerView.onResume();
             environment.onResume();
+            applyAutoFullscreenIfNeeded();
         }
     }
 
@@ -524,11 +535,11 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             guestProgramLauncherComponent.setGuestExecutable(guestExecutable);
 
             String containerEnvVars = container.getEnvVars();
-            Log.d("XServerDisplay", "Container envVars: " + containerEnvVars);
+            Log.i("XServerDisplay", "Container envVars: " + containerEnvVars);
             envVars.putAll(containerEnvVars);
             if (shortcut != null) envVars.putAll(shortcut.getExtra("envVars"));
             if (!envVars.has("WINEESYNC")) envVars.put("WINEESYNC", "1");
-            Log.d("XServerDisplay", "Final WINEDLLOVERRIDES: " + envVars.get("WINEDLLOVERRIDES"));
+            Log.i("XServerDisplay", "Final WINEDLLOVERRIDES: " + envVars.get("WINEDLLOVERRIDES"));
 
             guestProgramLauncherComponent.setBox64Preset(shortcut != null ? shortcut.getExtra("box64Preset", container.getBox64Preset()) : container.getBox64Preset());
         }
@@ -607,10 +618,13 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         renderer.setCursorVisible(false);
         renderer.setCursorColor(preferences.getInt("cursor_color", 0xffffff));
         renderer.setCursorScale(preferences.getFloat("cursor_scale", 1.0f));
-        renderer.setForceWindowsFullscreen(shortcut != null && shortcut.getExtra("forceFullscreen", "0").equals("1"));
+        renderer.setForceWindowsFullscreen(
+            (shortcut != null && shortcut.getExtra("forceFullscreen", "0").equals("1")) || forceWindowsFullscreen
+        );
 
         xServer.setRenderer(renderer);
         rootView.addView(xServerView);
+        applyAutoFullscreenIfNeeded();
 
         globalCursorSpeed = preferences.getFloat("cursor_speed", 1.0f);
         capturePointerOnExternalMouse = preferences.getBoolean("capture_pointer_on_external_mouse", true);
@@ -646,6 +660,15 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
         if (MainActivity.DEBUG_MODE) rootView.addView(AppUtils.createDebugMsgTextView(this));
         AppUtils.observeSoftKeyboardVisibility(drawerLayout, renderer::setScreenOffsetYRelativeToCursor);
+    }
+
+    private void applyAutoFullscreenIfNeeded() {
+        if (!autoFullscreen || xServerView == null) return;
+        GLRenderer renderer = xServerView.getRenderer();
+        // "Fullscreen" here is Winlator's stretch-to-fill mode (toggle fullscreen button).
+        if (renderer != null && !renderer.isFullscreen()) {
+            renderer.toggleFullscreen();
+        }
     }
 
     private void showInputControlsDialog() {

@@ -75,27 +75,27 @@
         <Button
             android:id="@+id/InstallButton"
             android:layout_width="0dp"
-            android:layout_height="64dp"
+            android:layout_height="52dp"
             android:layout_weight="1"
             android:text="@string/install"
-            android:textAllCaps="true"
-            android:textColor="@android:color/white"
-            android:textSize="18sp"
+            android:textAllCaps="false"
+            android:textColor="@color/retronexus_primary_dark"
+            android:textSize="16sp"
             android:textStyle="bold"
             android:background="@drawable/btn_rounded_accent" />
 
         <Button
             android:id="@+id/DeleteButton"
             android:layout_width="0dp"
-            android:layout_height="64dp"
+            android:layout_height="52dp"
             android:layout_marginStart="12dp"
             android:layout_weight="1"
             android:text="@string/delete"
-            android:textAllCaps="true"
-            android:textColor="@android:color/white"
-            android:textSize="18sp"
+            android:textAllCaps="false"
+            android:textColor="?attr/colorError"
+            android:textSize="16sp"
             android:textStyle="bold"
-            android:background="@drawable/btn_rounded_danger"
+            android:background="@drawable/btn_rounded_danger_outline"
             android:visibility="gone" />
     </LinearLayout>
 
