@@ -103,9 +103,8 @@ public class GameDetailFragment extends Fragment {
             return;
         }
         if (DownloadEngine.isReadyToPlay(getContext(), game)) {
-            installButton.setText("PLAY");
-            installButton.setBackgroundTintList(ColorStateList.valueOf(
-                ContextCompat.getColor(requireContext(), R.color.retronexus_success)));
+            installButton.setText(R.string.play);
+            installButton.setBackgroundResource(R.drawable.btn_rounded_success);
             installButton.setEnabled(true);
             installButton.setOnClickListener(v -> launchGame());
             deleteButton.setVisibility(View.VISIBLE);
@@ -113,9 +112,8 @@ public class GameDetailFragment extends Fragment {
             deleteButton.setOnClickListener(v -> confirmDelete());
             installProgress.setVisibility(View.GONE);
         } else {
-            installButton.setText("INSTALL");
-            installButton.setBackgroundTintList(ColorStateList.valueOf(
-                ContextCompat.getColor(requireContext(), R.color.retronexus_accent)));
+            installButton.setText(R.string.install);
+            installButton.setBackgroundResource(R.drawable.btn_rounded_accent);
             installButton.setEnabled(true);
             installButton.setOnClickListener(v -> startInstall("auto"));
             deleteButton.setVisibility(View.GONE);
@@ -241,7 +239,7 @@ public class GameDetailFragment extends Fragment {
     }
 
     private void startInstall(String mode) {
-        installButton.setText("INSTALL");
+        installButton.setText(R.string.install);
         installButton.setEnabled(false);
         deleteButton.setVisibility(View.GONE);
         installProgress.setVisibility(View.VISIBLE);
@@ -289,9 +287,8 @@ public class GameDetailFragment extends Fragment {
                         getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                         installProgress.hide();
                         installProgress.setVisibility(View.GONE);
-                        installButton.setText("PLAY");
-                        installButton.setBackgroundTintList(ColorStateList.valueOf(
-                            ContextCompat.getColor(requireContext(), R.color.retronexus_success)));
+                        installButton.setText(R.string.play);
+                        installButton.setBackgroundResource(R.drawable.btn_rounded_success);
                         installButton.setEnabled(true);
                         installButton.setOnClickListener(v -> launchGame());
                     });
@@ -306,9 +303,8 @@ public class GameDetailFragment extends Fragment {
                         installProgress.hide();
                         installProgress.setVisibility(View.GONE);
                         Toast.makeText(getContext(), "Install failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                        installButton.setText("INSTALL");
-                        installButton.setBackgroundTintList(ColorStateList.valueOf(
-                            ContextCompat.getColor(requireContext(), R.color.retronexus_accent)));
+                        installButton.setText(R.string.install);
+                        installButton.setBackgroundResource(R.drawable.btn_rounded_accent);
                         installButton.setEnabled(true);
                     });
                 }

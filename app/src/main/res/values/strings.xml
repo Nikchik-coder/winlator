@@ -11,6 +11,9 @@
     <string name="nav_header_tagline">Classic PC games on Android</string>
     <string name="about_tagline">Wine and Box64/Box86 on mobile — open-source components, RetroNexus shell.</string>
     <string name="run">Run</string>
+    <string name="install">Install</string>
+    <string name="play">Play</string>
+    <string name="delete">Delete</string>
     <string name="edit">Edit</string>
     <string name="remove">Remove</string>
     <string name="add">Add</string>
