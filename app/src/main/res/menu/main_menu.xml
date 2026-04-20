@@ -3,7 +3,6 @@
   xmlns:android="http://schemas.android.com/apk/res/android">
     <group android:checkableBehavior="single">
         <item android:icon="@drawable/icon_market" android:id="@+id/menu_item_market" android:title="@string/market" />
-        <item android:icon="@drawable/icon_shortcut" android:id="@+id/menu_item_shortcuts" android:title="@string/shortcuts" />
         <item android:icon="@drawable/icon_games" android:id="@+id/menu_item_containers" android:title="@string/containers" />
         <item android:icon="@drawable/icon_input_controls" android:id="@+id/menu_item_input_controls" android:title="@string/input_controls" />
         <item android:icon="@drawable/icon_settings" android:id="@+id/menu_item_settings" android:title="@string/settings" />

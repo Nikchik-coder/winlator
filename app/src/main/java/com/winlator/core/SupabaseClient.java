@@ -24,6 +24,43 @@ public class SupabaseClient {
         void onError(Exception e);
     }
 
+    public static void getLatestVersion(Callback<AppVersion> callback) {
+        new Thread(() -> {
+            String supabaseUrl = BuildConfig.SUPABASE_URL;
+            String supabaseAnonKey = BuildConfig.SUPABASE_ANON_KEY;
+            if (supabaseUrl == null || supabaseUrl.isEmpty() || supabaseAnonKey == null || supabaseAnonKey.isEmpty()) {
+                callback.onError(new IllegalStateException("Supabase not configured."));
+                return;
+            }
+
+            // Order by version_code descending, limit 1 to get the absolute newest version
+            Request request = new Request.Builder()
+                .url(supabaseUrl + "/rest/v1/app_versions?select=*&order=version_code.desc&limit=1")
+                .addHeader("Accept", "application/json")
+                .addHeader("apikey", supabaseAnonKey)
+                .addHeader("Authorization", "Bearer " + supabaseAnonKey)
+                .build();
+
+            try (Response response = client.newCall(request).execute()) {
+                String responseData = response.body() != null ? response.body().string() : "";
+                if (!response.isSuccessful()) {
+                    throw new IOException("HTTP " + response.code() + ": " + responseData);
+                }
+
+                Type listType = new TypeToken<List<AppVersion>>(){}.getType();
+                List<AppVersion> versions = gson.fromJson(responseData, listType);
+                
+                if (versions != null && !versions.isEmpty()) {
+                    callback.onSuccess(versions.get(0));
+                } else {
+                    callback.onSuccess(null); // No versions defined
+                }
+            } catch (Exception e) {
+                callback.onError(e);
+            }
+        }).start();
+    }
+
     public static void fetchGames(Callback<List<Game>> callback) {
         new Thread(() -> {
             String supabaseUrl = BuildConfig.SUPABASE_URL;

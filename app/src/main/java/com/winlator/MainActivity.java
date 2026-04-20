@@ -73,6 +73,8 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
         preferences = PreferenceManager.getDefaultSharedPreferences(this);
         applyRetroNexusMainChrome();
+        
+        com.winlator.core.AppUpdater.checkUpdate(this);
 
         Intent intent = getIntent();
         editInputControls = intent.getBooleanExtra("edit_input_controls", false);
@@ -199,10 +201,6 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         switch (item.getItemId()) {
             case R.id.menu_item_market:
                 showFragment(new GamesStoreFragment());
-                break;
-            case R.id.menu_item_shortcuts:
-                preferences.edit().putBoolean("show_shortcuts_first", true).apply();
-                showFragment(new ShortcutsFragment());
                 break;
             case R.id.menu_item_containers:
                 preferences.edit().putBoolean("show_shortcuts_first", false).apply();

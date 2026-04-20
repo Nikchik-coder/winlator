@@ -54,41 +54,7 @@ public class InputControlsManager {
         File profilesDir = InputControlsManager.getProfilesDir(context);
         if (FileUtils.isEmpty(profilesDir)) {
             FileUtils.copy(context, "inputcontrols/profiles", profilesDir);
-            return;
         }
-
-        SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-
-        int newVersion = AppUtils.getVersionCode(context);
-        int oldVersion = preferences.getInt("inputcontrols_app_version", 0);
-        if (oldVersion == newVersion) return;
-        preferences.edit().putInt("inputcontrols_app_version", newVersion).apply();
-
-        File[] files = profilesDir.listFiles();
-        if (files == null) return;
-
-        try {
-            AssetManager assetManager = context.getAssets();
-            String[] assetFiles = assetManager.list("inputcontrols/profiles");
-            for (String assetFile : assetFiles) {
-                String assetPath = "inputcontrols/profiles/"+assetFile;
-                ControlsProfile originProfile = loadProfile(context, assetManager.open(assetPath));
-
-                File targetFile = null;
-                for (File file : files) {
-                    ControlsProfile targetProfile = loadProfile(context, file);
-                    if (originProfile.id == targetProfile.id && originProfile.getName().equals(targetProfile.getName())) {
-                        targetFile = file;
-                        break;
-                    }
-                }
-
-                if (targetFile != null) {
-                    FileUtils.copy(context, assetPath, targetFile);
-                }
-            }
-        }
-        catch (IOException e) {}
     }
 
     public void loadProfiles(boolean ignoreTemplates) {
