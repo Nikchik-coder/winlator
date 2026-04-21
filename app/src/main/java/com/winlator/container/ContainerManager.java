@@ -3,6 +3,7 @@ package com.winlator.container;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import com.winlator.R;
 import com.winlator.core.Callback;
@@ -21,6 +22,7 @@ import java.util.Collections;
 import java.util.concurrent.Executors;
 
 public class ContainerManager {
+    private static final String TAG = "ContainerManager";
     private final ArrayList<Container> containers = new ArrayList<>();
     private int maxContainerId = 0;
     private final File homeDir;
@@ -45,24 +47,42 @@ public class ContainerManager {
         containers.clear();
         maxContainerId = 0;
 
-        try {
-            File[] files = homeDir.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isDirectory()) {
-                        if (file.getName().startsWith(RootFS.USER+"-")) {
-                            Container container = new Container(Integer.parseInt(file.getName().replace(RootFS.USER+"-", "")));
-                            container.setRootDir(new File(homeDir, RootFS.USER+"-"+container.id));
-                            JSONObject data = new JSONObject(FileUtils.readString(container.getConfigFile()));
-                            container.loadData(data);
-                            containers.add(container);
-                            maxContainerId = Math.max(maxContainerId, container.id);
-                        }
-                    }
+        File[] files = homeDir.listFiles();
+        if (files == null) return;
+
+        String prefix = RootFS.USER + "-";
+        for (File file : files) {
+            if (!file.isDirectory()) continue;
+            String name = file.getName();
+            if (!name.startsWith(prefix)) continue;
+
+            int id;
+            try {
+                id = Integer.parseInt(name.substring(prefix.length()));
+            } catch (NumberFormatException e) {
+                continue;
+            }
+
+            try {
+                Container container = new Container(id);
+                container.setRootDir(file);
+
+                String raw = FileUtils.readString(container.getConfigFile());
+                if (raw == null || raw.trim().isEmpty()) {
+                    Log.w(TAG, "Skipping container " + id + ": empty config at " + container.getConfigFile().getPath());
+                    continue;
                 }
+
+                JSONObject data = new JSONObject(raw);
+                container.loadData(data);
+                containers.add(container);
+                maxContainerId = Math.max(maxContainerId, container.id);
+            } catch (JSONException e) {
+                Log.w(TAG, "Skipping container due to invalid JSON: " + file.getPath(), e);
+            } catch (Exception e) {
+                Log.w(TAG, "Skipping container due to unexpected error: " + file.getPath(), e);
             }
         }
-        catch (JSONException e) {}
     }
 
     public void activateContainer(Container container) {
@@ -99,9 +119,13 @@ public class ContainerManager {
     private Container createContainer(JSONObject data) {
         try {
             int id = maxContainerId + 1;
-            data.put("id", id);
-
             File containerDir = new File(homeDir, RootFS.USER+"-"+id);
+            while (containerDir.exists()) {
+                id++;
+                containerDir = new File(homeDir, RootFS.USER+"-"+id);
+            }
+
+            data.put("id", id);
             if (!containerDir.mkdirs()) return null;
 
             Container container = new Container(id);
@@ -117,7 +141,7 @@ public class ContainerManager {
             }
 
             container.saveData();
-            maxContainerId++;
+            maxContainerId = Math.max(maxContainerId, id);
             containers.add(container);
             return container;
         }
@@ -127,8 +151,11 @@ public class ContainerManager {
 
     private void duplicateContainer(Container srcContainer) {
         int id = maxContainerId + 1;
-
         File dstDir = new File(homeDir, RootFS.USER+"-"+id);
+        while (dstDir.exists()) {
+            id++;
+            dstDir = new File(homeDir, RootFS.USER+"-"+id);
+        }
         if (!dstDir.mkdirs()) return;
 
         if (!FileUtils.copy(srcContainer.getRootDir(), dstDir, (file) -> FileUtils.chmod(file, 0771))) {
@@ -157,7 +184,7 @@ public class ContainerManager {
         dstContainer.setDesktopTheme(srcContainer.getDesktopTheme());
         dstContainer.saveData();
 
-        maxContainerId++;
+        maxContainerId = Math.max(maxContainerId, id);
         containers.add(dstContainer);
     }
 

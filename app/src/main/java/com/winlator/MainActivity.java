@@ -43,6 +43,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     public static final byte EDIT_INPUT_CONTROLS_REQUEST_CODE = 3;
     public static final byte OPEN_DIRECTORY_REQUEST_CODE = 4;
     private DrawerLayout drawerLayout;
+    private NavigationView navigationView;
     public final PreloaderDialog preloaderDialog = new PreloaderDialog(this);
     private boolean editInputControls = false;
     private int selectedProfileId;
@@ -64,7 +65,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         setContentView(R.layout.main_activity);
 
         drawerLayout = findViewById(R.id.DrawerLayout);
-        NavigationView navigationView = findViewById(R.id.NavigationView);
+        navigationView = findViewById(R.id.NavigationView);
         navigationView.setNavigationItemSelectedListener(this);
 
         setSupportActionBar(findViewById(R.id.Toolbar));
@@ -98,7 +99,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             int containerId = intent.getIntExtra("container_id", 0);
             String startPath = intent.getStringExtra("start_path");
             if (containerId > 0 && startPath != null) {
-                showFragment(new ContainerFileManagerFragment(containerId, startPath));
+                showFragment(new ContainerFileManagerFragment(containerId, startPath), R.id.menu_item_containers);
             }
         }
     }
@@ -140,6 +141,11 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
     @Override
     public void onBackPressed() {
+        if (drawerLayout != null && drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            drawerLayout.closeDrawer(GravityCompat.START);
+            return;
+        }
+
         if (currentFragment != null && currentFragment.isVisible()) {
             if (currentFragment instanceof BaseFileManagerFragment) {
                 BaseFileManagerFragment fileManagerFragment = (BaseFileManagerFragment)currentFragment;
@@ -147,10 +153,11 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             }
             else if (currentFragment instanceof ContainersFragment || currentFragment instanceof GamesStoreFragment) {
                 finish();
+                return;
             }
         }
 
-        showFragment(new ContainersFragment());
+        showFragment(new ContainersFragment(), R.id.menu_item_containers);
     }
 
     public void setOpenFileCallback(Callback<Uri> openFileCallback) {
@@ -200,33 +207,53 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
 
         switch (item.getItemId()) {
             case R.id.menu_item_market:
-                showFragment(new GamesStoreFragment());
+                showFragment(new GamesStoreFragment(), R.id.menu_item_market);
                 break;
             case R.id.menu_item_containers:
                 preferences.edit().putBoolean("show_shortcuts_first", false).apply();
-                showFragment(new ContainersFragment());
+                showFragment(new ContainersFragment(), R.id.menu_item_containers);
                 break;
             case R.id.menu_item_input_controls:
-                showFragment(new InputControlsFragment(selectedProfileId));
+                showFragment(new InputControlsFragment(selectedProfileId), R.id.menu_item_input_controls);
                 break;
             case R.id.menu_item_settings:
-                showFragment(new SettingsFragment());
+                showFragment(new SettingsFragment(), R.id.menu_item_settings);
                 break;
             case R.id.menu_item_about:
                 (new AboutDialog(this)).show();
+                // Keep the previous screen highlighted (About is a dialog, not a navigation destination).
+                if (navigationView != null && currentFragment != null) {
+                    int checked = getMenuIdForCurrentFragment(currentFragment);
+                    if (checked != 0) navigationView.setCheckedItem(checked);
+                }
                 break;
         }
         return true;
     }
 
     public void showFragment(Fragment fragment) {
+        showFragment(fragment, 0);
+    }
+
+    public void showFragment(Fragment fragment, int menuItemIdToCheck) {
         FragmentManager fragmentManager = getSupportFragmentManager();
         fragmentManager.beginTransaction()
             .replace(R.id.FLFragmentContainer, fragment)
             .commit();
 
-        drawerLayout.closeDrawer(GravityCompat.START);
+        if (drawerLayout != null) drawerLayout.closeDrawer(GravityCompat.START);
         currentFragment = fragment;
+        if (navigationView != null && menuItemIdToCheck != 0) {
+            navigationView.setCheckedItem(menuItemIdToCheck);
+        }
+    }
+
+    private int getMenuIdForCurrentFragment(Fragment fragment) {
+        if (fragment instanceof GamesStoreFragment) return R.id.menu_item_market;
+        if (fragment instanceof ContainersFragment) return R.id.menu_item_containers;
+        if (fragment instanceof InputControlsFragment) return R.id.menu_item_input_controls;
+        if (fragment instanceof SettingsFragment) return R.id.menu_item_settings;
+        return 0;
     }
 
     private void applyRetroNexusMainChrome() {

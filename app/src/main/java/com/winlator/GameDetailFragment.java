@@ -70,7 +70,7 @@ public class GameDetailFragment extends Fragment {
         installProgress = view.findViewById(R.id.InstallProgress);
 
         title.setText(game.title);
-        description.setText(game.description);
+        description.setText(formatDescriptionForUi(game.description));
         gameImage.setImageDrawable(null);
         ImageLoader.loadInto(gameImage, game.thumbnail_url);
 
@@ -315,5 +315,58 @@ public class GameDetailFragment extends Fragment {
     private void launchGame() {
         // Bypass desktop and launch directly
         DownloadEngine.launchGame(getContext(), game);
+    }
+
+    private static String formatDescriptionForUi(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        if (s.isEmpty()) return "";
+
+        // If author already provided formatting, keep it.
+        if (s.contains("\n")) return s;
+
+        // Avoid turning very short blurbs into weird multi-paragraph text.
+        if (s.length() < 220) return s;
+
+        // 1) Prefer sentence-based paragraphing first.
+        // Split on common sentence terminators (., !, ?, ellipsis).
+        String[] parts = s.split("(?<=[\\.\\!\\?…]|\\.\\.\\.)\\s+");
+        if (parts.length >= 3) {
+            StringBuilder out = new StringBuilder(s.length() + 64);
+            int sentenceCount = 0;
+            for (String p : parts) {
+                String t = p.trim();
+                if (t.isEmpty()) continue;
+                if (out.length() > 0) out.append(' ');
+                out.append(t);
+                sentenceCount++;
+                if (sentenceCount % 2 == 0) out.append("\n\n");
+            }
+            String formatted = out.toString().trim();
+            if (!formatted.isEmpty() && formatted.length() < s.length() + 16) {
+                return formatted;
+            }
+        }
+
+        // 2) Fallback: chunk by character length to avoid "monolith" walls of text,
+        // especially when the description is written with long clauses and few dots.
+        final int target = 340; // ~4–6 lines on mobile
+        StringBuilder out = new StringBuilder(s.length() + 64);
+        int lineLen = 0;
+        for (String word : s.split("\\s+")) {
+            if (word.isEmpty()) continue;
+            int wlen = word.length();
+            if (lineLen > 0 && lineLen + 1 + wlen > target) {
+                out.append("\n\n");
+                lineLen = 0;
+            } else if (lineLen > 0) {
+                out.append(' ');
+                lineLen++;
+            }
+            out.append(word);
+            lineLen += wlen;
+        }
+        String formatted = out.toString().trim();
+        return formatted.isEmpty() ? s : formatted;
     }
 }

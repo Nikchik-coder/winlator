@@ -48,7 +48,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:lineSpacingMultiplier="1.15"
+                android:lineSpacingMultiplier="1.18"
+                android:lineSpacingExtra="2dp"
+                android:hyphenationFrequency="full"
+                android:breakStrategy="high_quality"
+                android:justificationMode="inter_word"
                 android:text="Game Description"
                 android:textColor="?attr/colorSecondaryText"
                 android:textSize="16sp" />

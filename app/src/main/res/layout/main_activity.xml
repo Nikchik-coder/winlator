@@ -35,10 +35,15 @@
         android:layout_gravity="start"
         android:background="@drawable/drawer_retronexus_bg"
         android:fitsSystemWindows="true"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
         app:elevation="8dp"
         app:headerLayout="@layout/main_menu_header"
         app:itemIconTint="@color/nav_item_icon_tint"
         app:itemTextColor="@color/nav_item_text_tint"
-        app:itemBackground="@drawable/nav_item_ripple"
+        app:itemBackground="@drawable/nav_item_background"
+        app:itemRippleColor="@android:color/transparent"
+        app:itemHorizontalPadding="16dp"
+        app:itemIconPadding="14dp"
         app:menu="@menu/main_menu" />
 </androidx.drawerlayout.widget.DrawerLayout>
