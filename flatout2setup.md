@@ -124,7 +124,7 @@ VALUES (
 
 ## 💥 FlatOut 2
 
-### Статус: НЕ РЕШЕНО (диагностика)
+### Статус: Box64 0.4.2 ИНТЕГРАЦИЯ (тестирование)
 
 FlatOut 2 вылетает с `EXCEPTION_ACCESS_VIOLATION` (code=c0000005) в Box64 JIT-коде. Адрес краша стабильно `7Axx26A9` — смещение `26A9` фиксировано, база `7Axx` меняется от запуска к запуску (ASLR). Это указывает на конкретную инструкцию внутри JIT-скомпилированного кода, а не на случайную memory corruption.
 
@@ -177,6 +177,9 @@ Wine-сервис `RpcSs` не запускался вовремя. FlatOut 2 п
 | 17 | **BOX64_DYNAREC_LOG=2** | Heisenbug: логирование добавляет задержки и убирает race/crash. | **Проходит меню**, но **слишком медленно / зависает** |
 | 18 | **BOX64_DYNAREC_STRONGMEM=3 + WAIT=1** | Лёгкая альтернатива `LOG=2` (барьеры памяти + ожидание блоков). | Применён, **краш остаётся** |
 | 19 | **DXVK_CONFIG_FILE + per-game `dxvk.conf`** | Правильное ограничение потоков DXVK через `dxvk.numCompilerThreads` (а не через `DXVK_NUM_COMPILER_THREADS`). | Применён, **краш остаётся** |
+| 20 | **Предсгенерированный `Savegame/device.cfg` через `-setup`** | Идея: убрать “первый автодетект” D3D/видео, поставляя готовые конфиги. | Протестировано, **не помогло** |
+| 21 | **dgVoodoo2 (D3D9→D3D11 обход)** | Подмена `D3D9.dll` на dgVoodoo2 v2.87.1 x86 (D3D9→D3D11→DXVK→Vulkan). Тестировано v3 (`bestavailable`) и v4 (`d3d11_fl10_0` + `DisableD3DTnLDevice=true`). | Протестировано, **краш изменился** (`C51769B4 at 7B834F7A`), но **не ушёл** |
+| 22 | **`BOX64_MMAP32=1`** | Принудительно ограничивает mmap ниже 4 ГБ для WOW64-совместимости. Гипотеза: усечение 64-бит указателей. | Протестировано, **краш изменился** (`5A70F426 at 7B834F7A`), но **не ушёл** |
 
 ### Финальный блок env vars (текущий)
 
@@ -197,15 +200,117 @@ dxvk.numCompilerThreads = 1
 dxvk.enableAsync = False
 ```
 
-### Последний результат (22 Apr 2026)
+### Последний результат (22 Apr 2026, вечер)
 
-Даже с `BOX64_DYNAREC_STRONGMEM=3` + `BOX64_DYNAREC_WAIT=1` и `DXVK_CONFIG_FILE` (пер-игровой `dxvk.conf`) краш сохраняется **на компиляции того же шейдера**:
+Протестировано три новых подхода подряд:
+
+**dgVoodoo2 (v3/v4 ZIP):** Подмена `D3D9.dll` на dgVoodoo2 x86, чтобы путь стал D3D9→D3D11→DXVK→Vulkan. Краш изменился (новый адрес `C51769B4 at 7B834F7A` — это Wine `ntdll.dll`), но не ушёл.
+
+**`BOX64_MMAP32=1` (Supabase envVars):** Принудительный 32-бит mmap. Краш снова изменился (`5A70F426 at 7B834F7A`), адрес `7B83xxxx` = Wine ntdll. Это подтверждает, что проблема **не в усечении указателей WOW64** (иначе MMAP32 бы помогло), а глубже — в самом Wine WOW64 thunking или Box64.
+
+**Ключевое наблюдение:** Все три подхода (dgVoodoo2, MMAP32, стандартный DXVK) крашатся по адресу `7B83xxxx` (Wine ntdll.dll). Это значит, что проблема **не специфична для DXVK D3D9**, а в том, как Box64 0.4.0 транслирует WOW64-код Wine.
 
 ```
-Compiling shader FS_13f371a659423fd077cb793765c397f9b918fd14
-EXCEPTION_ACCESS_VIOLATION (code=c0000005)
-wine: Unhandled page fault on read access to 7A7626A9 at address 7A7626A9
+# dgVoodoo2 (v3):
+wine: Unhandled page fault on read access to C51769B4 at address 7B834F7A
+# BOX64_MMAP32=1 (v4):
+wine: Unhandled page fault on read access to 5A70F426 at address 7B834F7A
+# Стандартный DXVK (ранее):
+wine: Unhandled page fault on read access to 7A8226A9 at address 7A8226A9
 ```
+
+### Вывод по итогам всех попыток
+
+Все env var фиксы, dgVoodoo2, MMAP32, device.cfg — **исчерпаны**. Единственный реальный путь:
+
+1. **Box64 v0.4.2** — содержит коммит `#3083` с явным фиксом для FlatOut/FlatOut2 (`native_fprem/native_fprem1`). Требует установки нового компонента Box64 на устройство.
+2. **Другая сборка Wine WOW64** (8.x / 9.x) — если Box64 0.4.2 не поможет.
+
+### Box64 0.4.2 интеграция (22 Apr 2026)
+
+**Попытка 1: Bionic WCP (ПРОВАЛ)**
+Скачан `box64-bionic-0.4.2.wcp` из WinlatorWCPHub. Бинарник оказался собран под Android Bionic (`/system/bin/linker64`), а наш rootfs — glibc. Ошибка: `CANNOT LINK EXECUTABLE: has bad ELF magic: 2f2a2047`. Все игры перестали запускаться.
+
+**Попытка 2: Кросс-компиляция из исходников (УСПЕХ сборки)**
+- Установлен `gcc-aarch64-linux-gnu` на Ubuntu.
+- Клонирован `ptitSeb/box64` tag `v0.4.2`.
+- Собран с флагами: `-DARM64=ON -DWINLATOR_GLIBC=ON -DNOLOADADDR=ON`.
+- Linker flags: `--dynamic-linker=/data/data/com.winlator/files/rootfs/lib/ld-linux-aarch64.so.1 -rpath=/data/data/com.winlator/files/rootfs/lib`.
+- Stripped binary: 25 MB (vs 26 MB у 0.4.0). Структура ELF идентична 0.4.0 (те же NEEDED libs, тот же interpreter).
+- Файл `box64-0.4.2.tzst` добавлен в assets, `DefaultVersion.BOX64 = "0.4.2"`.
+
+**Результат на устройстве:**
+- ✅ NFS Most Wanted — работает (Box64 0.4.2 glibc совместим с rootfs).
+- ❌ FlatOut 2 — **новый краш**, отличный от старого:
+
+```
+# Старый краш (Box64 0.4.0):
+wine: Unhandled page fault on read access to 7A9126A9 at address 7A9126A9
+
+# Новый краш (Box64 0.4.2):
+wine: Unhandled page fault on write access to 01B5E02B at address 01B5E02E (thread 0128)
+```
+
+**Анализ нового краша:**
+- Адрес `01B5E02B` — **низкая память** (собственное адресное пространство игры), не Wine WOW64 range `7Axx`.
+- Операция **write** (не read). Другой тип ошибки.
+- Краш через ~3 сек после `init_peb`, **до** компиляции шейдеров и инициализации аудио.
+- Адрес **детерминированный** (одинаковый при каждом запуске) → конкретная инструкция, не случайная порча памяти.
+- Старый краш `7Axx26A9` (fprem/WOW64 race) **больше не появляется** → коммит #3083 сработал.
+- Краш `01B5E02B` **не связан** с MMAP32, не связан с конкретной версией Box64 (v0.4.2 tag и latest main дают идентичный краш).
+- **Гипотеза**: проблема в самом бинарнике `FlatOut2.exe` — возможно UniWS widescreen патч модифицировал инструкции, которые Box64 0.4.2 обрабатывает иначе, чем 0.4.0. На 0.4.0 эти инструкции случайно "проходили", а краш происходил позже (fprem). На 0.4.2 fprem исправлен, и теперь видна вторая проблема.
+
+**Дополнительные тесты (все дали `01B5E02B`):**
+1. Box64 v0.4.2 tag + `BOX64_MMAP32=1` → краш `01B5E02B`
+2. Box64 v0.4.2 tag **без** `BOX64_MMAP32=1` → краш `01B5E02B`
+3. Box64 latest main (post-0.4.2, включает IMUL fix #3795 + WOW64 EAX fix #3782) → краш `01B5E02B`
+
+**Вывод:** адрес `01B5E02B` детерминирован и не зависит от Box64 env vars или версии (v0.4.2+). Проблема в **exe файле** или в том, как Wine WOW64 загружает этот конкретный бинарник.
+
+**Дополнительные фиксы в коде (DownloadEngine.java):**
+- Удалён `d3d9=n,b` из WINEDLLOVERRIDES.
+- Добавлена автоочистка dgVoodoo2 (`D3D9.dll`, `D3DImm.dll`, `dgVoodoo.conf`).
+- Удалены `BOX64_DYNAREC_LOG=2`, `BOX64_TRACE_FILE`, `dxvk.conf` limiter.
+- Добавлен `BOX64_DYNAREC_WAIT=1`.
+
+**Текущие env vars:**
+```
+WINEDLLOVERRIDES=wineandroid.drv=d;dsound=b;dinput8=b;mmdevapi=b;avrt=b
+WINEESYNC=0
+WINE_LARGE_ADDRESS_AWARE=0
+BOX64_DYNAREC_WAIT=1
+```
+
+### Критическая находка: Box64 0.4.2 ломает NFS Most Wanted (22 Apr 2026)
+
+**Контекст:** после интеграции Box64 0.4.2 (glibc) NFS Most Wanted первоначально запустилась, но после нескольких перезапусков / переустановок FlatOut 2 стала **крашиться с тем же паттерном**, что и FlatOut 2:
+
+```
+00d8:warn:seh:dispatch_exception "EZ Wheel Wrapper v4.60.001\n"
+wine: Unhandled page fault on write access to 05E76554 at address 00819654 (thread 0134)
+```
+
+**Ключевые наблюдения:**
+- `EZ Wheel Wrapper v4.60.001` — компонент **FlatOut 2** (dinput8.dll wrapper), его не должно быть в NFS MW.
+- Адрес `00819654` — **одинаковый** в обоих играх (FlatOut 2 показывал `05F76554`/`05E76554` с тем же кодом `00819654`).
+- Логи NFS MW показывают `dinput8=n,b;d3d9=n,b` в WINEDLLOVERRIDES — эти настройки из **FlatOut 2 конфига**, а не NFS.
+- Причина: **контаминация контейнеров/Wine prefix** — настройки и DLL из FlatOut 2 утекли в NFS MW.
+
+**Решение:**
+- ✅ **Откат на Box64 0.4.0** → NFS Most Wanted снова работает нормально.
+- `DefaultVersion.BOX64` возвращён на `"0.4.0"`.
+
+**Вывод:**
+- Box64 0.4.2 **ломает обе игры** — FlatOut 2 (новый краш `01B5E02B`) и NFS MW (контаминированный краш через утёкшие DLL/настройки).
+- Box64 0.4.0 — **единственная рабочая версия** для NFS MW на данный момент.
+- FlatOut 2 не работает ни на 0.4.0 (краш `7Axx26A9`), ни на 0.4.2 (краш `01B5E02B`).
+
+**Следующие шаги:**
+1. **Попробовать чистый (непатченный) FlatOut2.exe v1.2** без UniWS widescreen патча — проверить, является ли патч причиной краша `01B5E02B`.
+2. **Попробовать другую сборку exe** — например, GOG или Steam 2014 оригинал.
+3. **Попробовать Box64 preset INTERMEDIATE или PERFORMANCE** вместо STABILITY — другие dynarec настройки могут обойти проблемную инструкцию.
+4. **Wine WOW64 8.x/9.x** — если проблема в Wine loader, а не Box64.
+5. **Удалить оба контейнера (FlatOut 2 + NFS MW) и скачать заново** — чтобы гарантировать чистые Wine prefix без контаминации.
 
 ### Что не работает на устройстве
 
@@ -224,6 +329,24 @@ wine: Unhandled page fault on read access to 7A7626A9 at address 7A7626A9
 | **Папку video/ можно оставить** | Код автоматически переименует в `video_disabled/`. |
 | **Файл `filesystem`** | Окончания строк `\r\n`, без пустых строк в конце, без пробелов в именах `.bfs`. |
 | **Widescreen** | Использовать **UniWS** патч на `FlatOut2.exe`. |
+
+### Эксперимент (22 Apr 2026): `-setup` → `Savegame/device.cfg` в архиве
+
+**Идея:** сгенерировать конфиги на ПК (через `wine FlatOut2.exe -setup`) и положить папку `Savegame/` в ZIP, чтобы игра на Android пропустила проблемный “первый автодетект” (как потенциальную причину 7Axx26A9).
+
+**Что сделали:**
+- На ПК в папке игры запущено `wine FlatOut2.exe -setup`, выставлены “эмулятор-safe” параметры (AA/anisotropy/triple buffering/post-processing выключены, 1280×720).
+- Проверено, что появились/обновились файлы: `Savegame/device.cfg` и `Savegame/options.cfg` (у `device.cfg` обновился timestamp).
+- Собран новый архив с корнем на уровне `FlatOut2.exe`: `flatout2_retronexus_rus_v2.zip` (включает `Savegame/`).
+
+**Наблюдение на устройстве:**
+- При запуске действительно **появляется окно Setup** (меню настроек).
+- После этого игра **всё равно зависает/падает** с тем же паттерном Box64 WOW64:
+  - `wine: Unhandled page fault on read access to 7Axx26A9 at address 7Axx26A9`
+
+**Технический вывод (по содержимому файла):**
+- `Savegame/device.cfg` — **бинарный** файл, в котором явно встречается строка `Primary Sound Driver` (т.е. он в основном фиксирует аудио/устройства, а не гарантированно “запирает” видеодетект).
+- Этот подход **не устраняет** crash `7Axx26A9`, значит причина остаётся на уровне **Box64 WOW64 / JIT / timing** (а не только “нет конфигов на первый запуск”).
 
 ### Текущий `config_preset` для Supabase
 
@@ -252,9 +375,11 @@ wine: Unhandled page fault on read access to 7A7626A9 at address 7A7626A9
 
 ### Следующие шаги
 
-1. **Факт**: На текущем стеке (Wine + Box64 WOW64 + DXVK) FlatOut 2 стабильно падает на shader compile с `7Axx26A9`.
-2. **Единственный подтверждённый обход**: `BOX64_DYNAREC_LOG=2` (Heisenbug), но он не пригоден для продакшена из‑за производительности.
-3. **Реальный путь решения**: обновление/замена Box64 (или Wine WOW64) на версию, где исправлен этот race/crash, либо отдельный per-app workaround на уровне Box64 (если появится поддержка лёгкого “yield/delay” без LOG-спама).
+1. **Попробовать без `BOX64_MMAP32=1`** — MMAP32 меняет виртуальный layout памяти, возможно адрес `01B5E02B` попадает в protected region из-за этого.
+2. **Попробовать preset INTERMEDIATE** вместо STABILITY — другие настройки dynarec могут обходить баг.
+3. **Попробовать другой exe** — чистый v1.2 без widescreen патча UniWS.
+4. **Собрать Box64 из `main` branch** (latest HEAD) — могут быть дополнительные фиксы поверх v0.4.2.
+5. **Попробовать Wine WOW64 8.x/9.x** — если проблема в Wine thunking, а не Box64.
 
 ### Что скачать и какие версии (матрица тестирования)
 
