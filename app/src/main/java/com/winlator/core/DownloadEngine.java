@@ -533,16 +533,25 @@ public class DownloadEngine {
 
         // Prefer DXVK when Vulkan is available; fall back to WineD3D otherwise.
         String dxwrapper = isVulkanAvailable(context) ? DXWrappers.DXVK : DXWrappers.WINED3D;
+        String dxwrapperConfig = "";
         String graphicsDriver = GraphicsDrivers.getDefaultDriver(context);
 
         JsonObject preset = getModePreset(game, effectiveMode);
         if (preset != null) {
             if (preset.has("screenSize")) screenSize = preset.get("screenSize").getAsString();
             if (preset.has("dxwrapper")) dxwrapper = preset.get("dxwrapper").getAsString();
+            if (preset.has("dxwrapperConfig")) dxwrapperConfig = preset.get("dxwrapperConfig").getAsString();
             if (preset.has("driver")) {
                 String vulkan = preset.get("driver").getAsString();
                 graphicsDriver = vulkan + "," + GraphicsDrivers.DEFAULT_OPENGL_DRIVER;
             }
+        }
+        if ((dxwrapperConfig == null || dxwrapperConfig.isEmpty())
+                && game != null
+                && game.config_preset != null
+                && game.config_preset.isJsonObject()
+                && game.config_preset.getAsJsonObject().has("dxwrapperConfig")) {
+            dxwrapperConfig = game.config_preset.getAsJsonObject().get("dxwrapperConfig").getAsString();
         }
 
         final boolean enableDinput8Override = shouldEnableDinput8Override(game, preset);
@@ -558,6 +567,7 @@ public class DownloadEngine {
 
         container.setScreenSize(screenSize);
         container.setDXWrapper(dxwrapper);
+        if (dxwrapperConfig != null && !dxwrapperConfig.isEmpty()) container.setDXWrapperConfig(dxwrapperConfig);
         container.setGraphicsDriver(graphicsDriver);
 
         EnvVars env = new EnvVars(container.getEnvVars());
@@ -676,10 +686,13 @@ public class DownloadEngine {
             env.put("WINEESYNC", "0");
             // Prevent Wine from mapping the 32-bit exe into high memory (wow64 address space issue).
             env.put("WINE_LARGE_ADDRESS_AWARE", "0");
-            // FlatOut 2: avoid the WOW64 race that crashes at 0x7Axx26xx.
-            // BOX64_DYNAREC_LOG=2 avoids it but is too slow; STRONGMEM=3 + WAIT=1 is the lightweight alternative.
-            env.put("BOX64_DYNAREC_STRONGMEM", "3");
-            env.put("BOX64_DYNAREC_WAIT", "1");
+            // FlatOut 2: LOG=2 is the only workaround that consistently gets past the 0x7Axx26A9
+            // WOW64 race. Redirect Box64 trace output to a file so we keep the timing effect
+            // without flooding logcat.
+            File traceDir = new File(container.getRootDir(), "tmp/box64-trace");
+            if (!traceDir.isDirectory()) traceDir.mkdirs();
+            env.put("BOX64_DYNAREC_LOG", "2");
+            env.put("BOX64_TRACE_FILE", new File(traceDir, "flatout2-%pid.txt").getPath());
 
             // Properly limit DXVK shader compilation threads via dxvk.conf (DXVK does not read DXVK_NUM_COMPILER_THREADS).
             // We override DXVK_CONFIG_FILE so this file is used instead of the global user config.
@@ -692,6 +705,10 @@ public class DownloadEngine {
                 FileUtils.writeString(dxvkConf, dxvkConfContent);
                 env.put("DXVK_CONFIG_FILE", "F:\\\\RetroNexus\\\\Games\\\\FlatOut_2\\\\dxvk.conf");
             } catch (Exception ignored) {}
+
+            // Force the older built-in DXVK (1.10.3) for FlatOut 2 (newer 2.x triggers the crash more often).
+            container.setDXWrapper(DXWrappers.DXVK);
+            container.setDXWrapperConfig("version=" + DefaultVersion.MINOR_DXVK);
 
             container.setEnvVars(env.toString());
             Log.i("DownloadEngine", "FlatOut 2: FINAL strict overrides applied: " + finalOverrides);

@@ -21,8 +21,8 @@ android {
         applicationId 'com.winlator'
         minSdkVersion 26
         targetSdkVersion 28
-        versionCode 6
-        versionName "1.0.5"
+        versionCode 8
+        versionName "1.0.7"
 
         def supabaseUrl = localProps.getProperty('SUPABASE_URL', '')
         def supabaseAnonKey = localProps.getProperty('SUPABASE_ANON_KEY', '')
@@ -35,6 +35,13 @@ android {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
 
+            ndk {
+                abiFilters 'arm64-v8a'
+            }
+        }
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             ndk {
                 abiFilters 'arm64-v8a'
             }

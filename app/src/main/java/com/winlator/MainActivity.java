@@ -219,6 +219,9 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             case R.id.menu_item_settings:
                 showFragment(new SettingsFragment(), R.id.menu_item_settings);
                 break;
+            case R.id.menu_item_help:
+                showFragment(new HelpFragment(), R.id.menu_item_help);
+                break;
             case R.id.menu_item_about:
                 (new AboutDialog(this)).show();
                 // Keep the previous screen highlighted (About is a dialog, not a navigation destination).
@@ -253,6 +256,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
         if (fragment instanceof ContainersFragment) return R.id.menu_item_containers;
         if (fragment instanceof InputControlsFragment) return R.id.menu_item_input_controls;
         if (fragment instanceof SettingsFragment) return R.id.menu_item_settings;
+        if (fragment instanceof HelpFragment) return R.id.menu_item_help;
         return 0;
     }
 
