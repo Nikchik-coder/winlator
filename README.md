@@ -28,7 +28,7 @@ This README documents:
 - **`gamesetup.md`**: SOP for preparing “portable” games + Supabase insert template
 - **`supabase_schema.sql`**: Supabase tables (`games`, `access_codes`) + policies + activation RPC
 - **`COMMANDS.md`**: quick adb commands (logs, install)
-- **`retronexus-v1.0.4.apk`**: a built APK snapshot (large binary)
+- **`retronexus-v1.0.5.apk`**: a built APK snapshot (large binary)
 
 Other folders like `glibc_patches/`, `cmod-glibc-branch/`, `wine_addons/`, etc. are build/runtime components that support Winlator.
 

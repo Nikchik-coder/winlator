@@ -11,9 +11,9 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 from s3.config import load_settings, r2_configured, r2_endpoint_url
 
-LOCAL_ZIP = Path("/home/nik/Desktop/gta_sa_retronexus_v1.zip")
+LOCAL_ZIP = Path("/home/nik/Desktop/Flatout2/flatout2_retronexus_rus_v1.zip")
 # Object key inside the bucket (logical "folder" prefix optional).
-S3_OBJECT_KEY = "gta_sa_retronexus_v1/gta_sa_retronexus_v1.zip"
+S3_OBJECT_KEY = "Flatout2/flatout2_retronexus_rus_v1.zip"
 
 
 def _log(msg: str) -> None:

@@ -77,28 +77,26 @@
 ```sql
 INSERT INTO public.games (id, title, description, thumbnail_url, download_url, config_preset)
 VALUES (
-  gen_random_uuid(),
+  uuid_generate_v4(),
   'Название Игры',
   'Крутое описание игры с упоминанием фишек RetroNexus (FullScreen, 60FPS, One-Click).',
   'https://ТВОЙ_S3_BUCKET/game_logo.jpg',
   'https://ТВОЙ_S3_BUCKET/game_retronexus.zip',
   '{
     "exe": "Game.exe",
-    "arguments": "-windowed -width 1280", 
+    "exec_args": "-windowed -width 1280",
     "graphics": {
       "driver": "turnip", 
-      "dxWrapper": "dxvk", 
-      "screenSize": "1280x720"
-    },
-    "wine": {
-      "version": "Windows 7",
-      "audio": "alsa"
+      "dxwrapper": "dxvk",
+      "screenSize": "1280x720",
+      "winVersion": "win7",
+      "audioDriver": "alsa"
     }
   }'::jsonb
 );
 ```
 
-> **Примечание:** Если игра очень старая (до 2005 года), меняем `dxWrapper` на `wined3d`, а `version` на `Windows XP`.
+> **Примечание:** Если игра очень старая (до 2005 года), меняем `dxwrapper` на `wined3d`, а `winVersion` на `winxp`.
 
 ---
 
