@@ -15,6 +15,7 @@ import com.winlator.container.ContainerManager;
 import com.winlator.container.DXWrappers;
 import com.winlator.container.Drive;
 import com.winlator.container.GraphicsDrivers;
+import com.winlator.box64.Box64Preset;
 import com.winlator.core.WineUtils;
 import com.winlator.core.GPUHelper;
 import com.winlator.win32.WinVersions;
@@ -45,6 +46,7 @@ import okhttp3.ResponseBody;
 
 public class DownloadEngine {
     private static final String INSTALL_MARKER_NAME = ".retronexus_install_complete";
+    private static final String FLATOUT2_EXE = "flatout2.exe";
 
     public static class InstallStatus {
         public volatile int percent = -1; // -1 => indeterminate
@@ -509,6 +511,12 @@ public class DownloadEngine {
         latch.await(120, TimeUnit.SECONDS);
 
         if (created[0] != null) {
+            // For FlatOut 2: enable RpcSs in the freshly created system.reg BEFORE applyPreset,
+            // so services.exe will start RpcSs on the very first launch.
+            if (isFlatout2(game)) {
+                WineUtils.changeServicesStatus(created[0], false);
+                Log.i("DownloadEngine", "FlatOut 2: enabled RpcSs in fresh container registry");
+            }
             applyPreset(context, created[0], game, mode);
             created[0].saveData();
         }
@@ -590,15 +598,23 @@ public class DownloadEngine {
             Log.e("DownloadEngine", "Error applying envVars", e);
         }
 
-            // For FlatOut 2: disable Android audio driver to prevent mmdevapi crash
-        if (game != null && "Flatout 2".equalsIgnoreCase(game.title)) {
+        // For FlatOut 2: disable the Android-specific Wine audio driver.
+        // We previously disabled/removed mmdevapi.dll as well, but that can crash games that expect it.
+        if (isFlatout2(game)) {
             String currentOverrides = env.get("WINEDLLOVERRIDES");
             if (currentOverrides == null || currentOverrides.isEmpty()) {
                 currentOverrides = baseDllOverrides;
             }
-            // Disable wineandroid.drv to force PulseAudio, disable mmdevapi entirely
-            env.put("WINEDLLOVERRIDES", "wineandroid.drv=d;mmdevapi=d;" + currentOverrides);
-            Log.d("DownloadEngine", "FlatOut 2: Disabled Android audio driver and mmdevapi");
+            String next = normalizeDllOverride(currentOverrides, "wineandroid.drv", "d");
+            next = normalizeDllOverride(next, "mmdevapi", "b");
+            next = normalizeDllOverride(next, "avrt", "b");
+            next = normalizeDllOverride(next, "dsound", "b");
+            // If a ThirteenAG dinput8 loader is present, force builtin to avoid Box64 crashes.
+            if (!enableDinput8Override) {
+                next = normalizeDllOverride(next, "dinput8", "b");
+            }
+            env.put("WINEDLLOVERRIDES", next);
+            Log.d("DownloadEngine", "FlatOut 2: Disabled wineandroid.drv");
         } else if (!env.has("WINEDLLOVERRIDES")) {
             Log.d("DownloadEngine", "No WINEDLLOVERRIDES set, using default");
             env.put("WINEDLLOVERRIDES", baseDllOverrides);
@@ -617,44 +633,146 @@ public class DownloadEngine {
         applyAudioDriver(container, game, preset);
         applyWinComponents(container, game, preset);
         applyStartupSelection(container, game, preset);
+
+        // FlatOut 2: force winxp so Wine uses DirectSound directly instead of mmdevapi.
+        // mmdevapi depends on COM/RPC (RpcSs), which doesn't start in time under Winlator,
+        // causing EXCEPTION_ACCESS_VIOLATION on secondary audio threads.
+        // winxp bypasses this entirely — no mmdevapi, no COM audio, no RPC dependency.
+        if (isFlatout2(game)) {
+            int xpIdx = findWinVersionIndex("winxp");
+            if (xpIdx != -1) {
+                WineUtils.setWinVersion(container, xpIdx);
+                Log.i("DownloadEngine", "FlatOut 2: forced winxp to bypass mmdevapi/COM audio");
+            }
+            container.setStartupSelection(Container.STARTUP_SELECTION_NORMAL);
+            WineUtils.changeServicesStatus(container, false);
+            container.putExtra("startupSelection", String.valueOf(Container.STARTUP_SELECTION_NORMAL));
+            Log.i("DownloadEngine", "FlatOut 2: forcing startupSelection=normal + enabled RpcSs in registry");
+        }
+
         applyBox64Preset(container, game, preset);
+
+        // FlatOut 2: the game crashes with EXCEPTION_ACCESS_VIOLATION at Box64 JIT addresses
+        // (7Axx26A9 pattern) under wow64. Force the STABILITY preset to use the safest
+        // dynarec settings (SAFEFLAGS=2, BIGBLOCK=0, STRONGMEM=2, NATIVEFLAGS=0).
+        if (isFlatout2(game)) {
+            container.setBox64Preset(Box64Preset.STABILITY);
+            Log.i("DownloadEngine", "FlatOut 2: forced Box64 STABILITY preset for wow64 compatibility");
+        }
+
         applyCpuAffinityDefaults(container);
         ensureExternalStorageDrive(container);
         restoreBackedUpDlls(container);
         cleanupLegacyDllOverrides(container);
-        disableMmdevapiForFlatout2(container, game);
+
+        // FINAL OVERRIDE FOR FLATOUT 2
+        // This must come after all other logic to guarantee the loader and audio stack are stable.
+        if (isFlatout2(game)) {
+            File gameDir = getGameInstallDir(game);
+
+            String finalOverrides = "wineandroid.drv=d;dsound=b;dinput8=b;mmdevapi=b;avrt=b;d3d9=n,b";
+            env.put("WINEDLLOVERRIDES", finalOverrides);
+            // Disable esync — 32-bit games under wow64 can hit threading issues with esync.
+            env.put("WINEESYNC", "0");
+            // Prevent Wine from mapping the 32-bit exe into high memory (wow64 address space issue).
+            env.put("WINE_LARGE_ADDRESS_AWARE", "0");
+            // FlatOut 2: avoid the WOW64 race that crashes at 0x7Axx26xx.
+            // BOX64_DYNAREC_LOG=2 avoids it but is too slow; STRONGMEM=3 + WAIT=1 is the lightweight alternative.
+            env.put("BOX64_DYNAREC_STRONGMEM", "3");
+            env.put("BOX64_DYNAREC_WAIT", "1");
+
+            // Properly limit DXVK shader compilation threads via dxvk.conf (DXVK does not read DXVK_NUM_COMPILER_THREADS).
+            // We override DXVK_CONFIG_FILE so this file is used instead of the global user config.
+            try {
+                File dxvkConf = new File(gameDir, "dxvk.conf");
+                String dxvkConfContent = ""
+                        + "[FlatOut2.exe]\n"
+                        + "dxvk.numCompilerThreads = 1\n"
+                        + "dxvk.enableAsync = False\n";
+                FileUtils.writeString(dxvkConf, dxvkConfContent);
+                env.put("DXVK_CONFIG_FILE", "F:\\\\RetroNexus\\\\Games\\\\FlatOut_2\\\\dxvk.conf");
+            } catch (Exception ignored) {}
+
+            container.setEnvVars(env.toString());
+            Log.i("DownloadEngine", "FlatOut 2: FINAL strict overrides applied: " + finalOverrides);
+
+            // Rename the video folder so the Bugbear engine skips intro videos.
+            // Video playback (WMV/AVI) crashes under Box64/Wine wow64.
+            File videoDir = new File(gameDir, "video");
+            if (videoDir.exists() && videoDir.isDirectory()) {
+                File disabled = new File(gameDir, "video_disabled");
+                if (videoDir.renameTo(disabled)) {
+                    Log.i("DownloadEngine", "FlatOut 2: renamed video/ → video_disabled/ to skip intro");
+                }
+            }
+
+            // Remove IndirectSound (dsound.dll + dsound.ini) — it requires XAudio2/mmdevapi
+            // to enumerate audio devices, which fails under winxp. Wine's builtin dsound
+            // routes through ALSA directly and works without mmdevapi.
+            File nativeDsound = new File(gameDir, "dsound.dll");
+            File dsoundIni = new File(gameDir, "dsound.ini");
+            if (nativeDsound.exists() && nativeDsound.delete()) {
+                Log.i("DownloadEngine", "FlatOut 2: removed IndirectSound dsound.dll (incompatible with winxp)");
+            }
+            if (dsoundIni.exists() && dsoundIni.delete()) {
+                Log.i("DownloadEngine", "FlatOut 2: removed dsound.ini");
+            }
+
+            // Remove the ThirteenAG dinput8 loader and scripts folder that cause Box64 crashes.
+            File dinput8 = new File(gameDir, "dinput8.dll");
+            File scriptsDir = new File(gameDir, "scripts");
+            if (dinput8.exists() && dinput8.delete()) {
+                Log.i("DownloadEngine", "FlatOut 2: removed dinput8.dll loader to prevent Box64 crash");
+            }
+            if (scriptsDir.exists()) {
+                FileUtils.delete(scriptsDir);
+                Log.i("DownloadEngine", "FlatOut 2: removed scripts/ folder (ThirteenAG loader)");
+            }
+        }
 
         // Save all container changes
         container.saveData();
         Log.d("DownloadEngine", "Container preset applied and saved for " + (game != null ? game.title : "unknown"));
     }
 
-    /**
-     * Nuclear option for FlatOut 2: Rename mmdevapi.dll to prevent audio crash.
-     * This makes the game run silent but playable.
-     */
-    private static void disableMmdevapiForFlatout2(Container container, Game game) {
-        try {
-            if (game == null || !"Flatout 2".equalsIgnoreCase(game.title)) return;
-            
-            File rootDir = container.getRootDir();
-            String[] paths = {
-                ".wine/drive_c/windows/system32/mmdevapi.dll",
-                ".wine/drive_c/windows/syswow64/mmdevapi.dll"
-            };
-            
-            for (String path : paths) {
-                File dllFile = new File(rootDir, path);
-                File bakFile = new File(rootDir, path + ".bak");
-                if (dllFile.exists() && !bakFile.exists()) {
-                    if (dllFile.renameTo(bakFile)) {
-                        Log.d("DownloadEngine", "Nuclear option: Disabled mmdevapi for FlatOut 2: " + path);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.w("DownloadEngine", "Failed to disable mmdevapi for FlatOut 2", e);
+    private static String removeDllOverride(String overrides, String dllName) {
+        if (overrides == null) return "";
+        if (dllName == null || dllName.isEmpty()) return overrides;
+        String target = dllName.toLowerCase(Locale.US) + "=";
+        String[] parts = overrides.split(";");
+        String out = "";
+        for (String p : parts) {
+            if (p == null) continue;
+            String trimmed = p.trim();
+            if (trimmed.isEmpty()) continue;
+            String lower = trimmed.toLowerCase(Locale.US);
+            if (lower.startsWith(target)) continue;
+            out += (!out.isEmpty() ? ";" : "") + trimmed;
         }
+        return out;
+    }
+
+    private static String normalizeDllOverride(String overrides, String dllName, String value) {
+        String w = overrides != null ? overrides : "";
+        if (dllName == null || dllName.isEmpty()) return w;
+        // Remove any existing entry for this DLL (any value), then prepend our desired one.
+        w = removeDllOverride(w, dllName);
+        String entry = dllName + "=" + (value != null ? value : "");
+        if (w.isEmpty()) return entry;
+        return entry + ";" + w;
+    }
+
+    private static boolean isFlatout2(Game game) {
+        if (game == null) return false;
+        try {
+            String exe = getExeName(game);
+            if (exe != null && exe.toLowerCase(Locale.US).equals(FLATOUT2_EXE)) return true;
+        } catch (Exception ignored) {}
+        try {
+            String t = game.title;
+            return t != null && t.toLowerCase(Locale.US).contains("flatout 2");
+        } catch (Exception ignored) {}
+        return false;
     }
 
     /**
@@ -734,6 +852,9 @@ public class DownloadEngine {
     private static boolean shouldEnableDinput8Override(Game game, JsonObject modePreset) {
         Boolean explicit = getBooleanConfig(modePreset, game, "enableDinput8Override");
         if (explicit != null) return explicit;
+        // FlatOut 2 often ships ThirteenAG-style dinput8.dll loaders which crash on Box64.
+        // Default to builtin dinput8 unless explicitly enabled via config.
+        if (isFlatout2(game)) return false;
         if (isNfsUnderground2(game)) return false;
         return true;
     }
@@ -893,17 +1014,6 @@ public class DownloadEngine {
             }
             if (v == null || v.isEmpty()) return;
             container.setAudioDriver(v);
-
-            // Disable mmdevapi entirely to prevent crashes in games that use it
-            // mmdevapi is buggy in Wine on Android; disabling it forces DirectSound fallback
-            File userRegFile = new File(container.getRootDir(), ".wine/user.reg");
-            if (userRegFile.exists()) {
-                try (WineRegistryEditor registryEditor = new WineRegistryEditor(userRegFile)) {
-                    registryEditor.setStringValue("Software\\Wine\\DllOverrides", "mmdevapi", "disabled");
-                    registryEditor.setStringValue("Software\\Wine\\DllOverrides", "avrt", "disabled");
-                    Log.d("DownloadEngine", "Disabled mmdevapi/avrt to prevent audio crashes");
-                }
-            }
         } catch (Exception e) {
             Log.w("DownloadEngine", "Failed to apply audio driver settings", e);
         }
